@@ -1,19 +1,19 @@
 {
-  "version": "3.6.6",
+  "version": "3.7",
   "downloads": [
-    "https://gitflic.ru/project/moznoazachem/giga/release/c1f50a48-2217-408c-8efa-35263db93eec/59a6d2df-18b5-4708-86ac-9a901b643fea/download",
-    "https://github.com/moznoazachem/giga-pisar/releases/download/v3.6.6/GigaPisar-3.6.6.zip"
+    "https://gitflic.ru/project/moznoazachem/giga/release/5f29c497-98c6-40b4-a091-1d5f523f38be/89cd1153-1a65-4bc2-8b63-23ddddf000b0/download",
+    "https://github.com/moznoazachem/giga-pisar/releases/download/v3.7/GigaPisar-3.7.zip"
   ],
   "notes": {
     "ru": [
-      "Команды над выделенным текстом работают в Pages, Keynote и Numbers",
-      "В Pages после диктовки нет лишней подсказки «курсор был не в тексте»",
-      "В меню Мозга у Qwen, скачанной раньше, показан её настоящий размер"
+      "Мозг в облаке или на своём сервере: выбрал сервис, вставил ключ, модель подберётся сама. Работает и на маках с Intel",
+      "Правка выделенного отдельным пунктом в меню, её можно выключить",
+      "Новая галочка в меню Мозга: править каждую диктовку без команды"
     ],
     "en": [
-      "Commands on selected text now work in Pages, Keynote and Numbers",
-      "No more spurious “cursor wasn't in a text field” hint after dictating into Pages",
-      "The Brain menu shows the real size of a previously downloaded Qwen"
+      "The Brain can think in the cloud or on your own server: pick the service, paste the key, the model is chosen for you. Works on Intel Macs too",
+      "Editing a selection by voice has its own menu item and can be turned off",
+      "New Brain menu option: edit every take without a command"
     ]
   }
 }
