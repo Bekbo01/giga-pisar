@@ -987,13 +987,15 @@ final class App: NSObject, NSApplicationDelegate {
         buildMenu()
     }
 
-    /// Address, key and model of the user's server. Saving switches the Brain to it.
+    /// Service, key and model of the Brain in the cloud. People usually have a key and a
+    /// service name, not an address: the service is picked (or guessed from the key), the
+    /// address is filled in and the model list loads by itself. Saving switches the Brain to it.
     @objc func showBrainServer() {
         NSApp.activate(ignoringOtherApps: true)
         let a = NSAlert()
-        a.messageText = L("Мозг на своём сервере или в облаке", "Brain on Your Server or in the Cloud")
-        a.informativeText = L("Подойдёт любой сервис с OpenAI-совместимым API: OpenRouter, DeepSeek, OpenAI, свой LM Studio, Ollama или llama.cpp. Распознавание остаётся на маке, звук никуда не уходит, на сервер отправляется только готовый текст. Ключ хранится в Связке ключей.",
-                              "Any service with an OpenAI-compatible API works: OpenRouter, DeepSeek, OpenAI, or your own LM Studio, Ollama or llama.cpp. Recognition stays on this Mac and audio never leaves it; only the recognized text is sent. The key is kept in the Keychain.")
+        a.messageText = L("Мозг в облаке или на своём сервере", "Brain in the Cloud or on Your Server")
+        a.informativeText = L("Выбери сервис и вставь ключ, модель Писарь подберёт сам. Распознавание остаётся на маке, звук никуда не уходит, на сервер отправляется только готовый текст. Ключ хранится в Связке ключей.",
+                              "Pick the service and paste the key; Pisar chooses the model. Recognition stays on this Mac and audio never leaves it; only the recognized text is sent. The key is kept in the Keychain.")
         let w: CGFloat = 380
         func label(_ s: String) -> NSTextField {
             let t = NSTextField(labelWithString: s)
@@ -1001,70 +1003,156 @@ final class App: NSObject, NSApplicationDelegate {
             t.textColor = .secondaryLabelColor
             return t
         }
-        let url = NSTextField(string: BrainServer.baseURL)
-        url.placeholderString = L("например https://openrouter.ai/api/v1", "e.g. https://openrouter.ai/api/v1")
-        let urlHint = NSTextField(wrappingLabelWithString: L("OpenRouter: https://openrouter.ai/api/v1 · DeepSeek: https://api.deepseek.com/v1 · OpenAI: https://api.openai.com/v1 · LM Studio: http://localhost:1234/v1",
-                                                             "OpenRouter: https://openrouter.ai/api/v1 · DeepSeek: https://api.deepseek.com/v1 · OpenAI: https://api.openai.com/v1 · LM Studio: http://localhost:1234/v1"))
-        urlHint.font = .systemFont(ofSize: 10)
-        urlHint.textColor = .tertiaryLabelColor
-        urlHint.isSelectable = true
+        func small(_ s: String) -> NSTextField {
+            let t = NSTextField(wrappingLabelWithString: s)
+            t.font = .systemFont(ofSize: 11)
+            t.textColor = .secondaryLabelColor
+            return t
+        }
+
+        let service = NSPopUpButton()
+        for p in BrainProviders.all { service.addItem(withTitle: BrainProviders.title(p)) }
+        let saved = BrainServer.baseURL.isEmpty ? BrainProviders.deepseek : BrainProviders.fromURL(BrainServer.baseURL)
+        service.selectItem(at: BrainProviders.all.firstIndex { $0.id == saved.id } ?? 0)
+        var provider: BrainProvider { BrainProviders.all[max(0, service.indexOfSelectedItem)] }
+
         let key = NSSecureTextField(string: BrainServer.apiKey)
-        key.placeholderString = L("ключ (для своего сервера можно пусто)", "key (may be empty for your own server)")
+        key.placeholderString = L("вставь ключ", "paste the key")
+        let keysLink = ClosureButton(title: "") {
+            if let u = URL(string: provider.keysURL), !provider.keysURL.isEmpty { NSWorkspace.shared.open(u) }
+        }
+        keysLink.bezelStyle = .inline
+        keysLink.isBordered = false
+        keysLink.contentTintColor = .linkColor
+
+        let urlLabel = label(L("Адрес сервера", "Server Address"))
+        let url = NSTextField(string: saved.isCustom ? BrainServer.baseURL : "")
+        url.placeholderString = L("например http://localhost:1234/v1", "e.g. http://localhost:1234/v1")
+        let urlHint = small(L("LM Studio: http://localhost:1234/v1 · Ollama: http://localhost:11434/v1. Ключ для своего сервера обычно не нужен.",
+                              "LM Studio: http://localhost:1234/v1 · Ollama: http://localhost:11434/v1. Your own server usually needs no key."))
+
         let model = NSComboBox()
         model.stringValue = BrainServer.model
-        model.placeholderString = L("например deepseek-chat", "e.g. deepseek-chat")
         model.completes = true
-        let status = NSTextField(labelWithString: "")
-        status.font = .systemFont(ofSize: 11)
-        status.textColor = .secondaryLabelColor
-        let refresh = ClosureButton(title: L("Загрузить список моделей", "Load Model List")) {
-            guard BrainServer.completionsURL(url.stringValue) != nil else {
-                status.stringValue = url.stringValue.trimmingCharacters(in: .whitespaces).isEmpty
-                    ? L("Сначала впишите адрес сервиса в поле «Адрес».", "Type the service address in the Address field first.")
-                    : L("Адрес должен начинаться с https:// или http://", "The address must start with https:// or http://")
+        let status = small("")
+
+        var endpoint: String { provider.isCustom ? url.stringValue.trimmingCharacters(in: .whitespaces) : provider.baseURL }
+        var loadSerial = 0
+        func loadModels(pickDefault: Bool) {
+            guard BrainServer.completionsURL(endpoint) != nil else {
+                status.stringValue = L("Впиши адрес сервера.", "Enter the server address.")
                 return
             }
-            status.stringValue = L("Спрашиваю сервер…", "Asking the server…")
-            BrainServer.fetchModels(base: url.stringValue, key: key.stringValue) { r in
-                DispatchQueue.main.async {
+            loadSerial += 1
+            let mine = loadSerial, p = provider
+            status.stringValue = L("Загружаю список моделей…", "Loading the model list…")
+            BrainServer.fetchModels(base: endpoint, key: key.stringValue.trimmingCharacters(in: .whitespaces)) { r in
+                onMainInModal {
+                    guard mine == loadSerial else { return }
                     switch r {
-                    case .success(let ids):
+                    case .success(let all):
+                        let ids = BrainProviders.chatModels(all)
+                        let typed = model.stringValue.trimmingCharacters(in: .whitespaces)
                         model.removeAllItems()
                         model.addItems(withObjectValues: ids)
-                        status.stringValue = L("Моделей: \(ids.count). Выберите в списке или впишите сами.",
-                                               "\(ids.count) models. Pick one or type it in.")
-                        if model.stringValue.isEmpty, let first = ids.first { model.stringValue = first }
+                        model.stringValue = pickDefault || typed.isEmpty ? (BrainProviders.pickDefault(p, ids) ?? "") : typed
+                        status.stringValue = L("Ключ подошёл. Моделей: \(ids.count), выбрана \(model.stringValue). Можно сохранять.",
+                                               "The key works. \(ids.count) models, \(model.stringValue) selected. Ready to save.")
                     case .failure(let e):
-                        status.stringValue = L("Не вышло: \(e.localizedDescription)", "Failed: \(e.localizedDescription)")
+                        let code = (e as NSError).code
+                        if code == 401 || code == 403 {
+                            status.stringValue = L("\(p.name) не принял ключ. Проверь, что ключ от этого сервиса и скопирован целиком.",
+                                                   "\(p.name) rejected the key. Check that it is for this service and copied in full.")
+                        } else {
+                            if !p.isCustom, model.stringValue.isEmpty { model.stringValue = p.preferredModels.first ?? "" }
+                            status.stringValue = L("Список моделей не загрузился: \(e.localizedDescription)",
+                                                   "Could not load the model list: \(e.localizedDescription)")
+                        }
                     }
                 }
             }
         }
-        let stack = NSStackView(views: [label(L("Адрес", "Address")), url, urlHint, label(L("Ключ API", "API Key")), key,
-                                        label(L("Модель", "Model")), model, refresh, status])
+        func updateService() {
+            let p = provider
+            urlLabel.isHidden = !p.isCustom
+            url.isHidden = !p.isCustom
+            urlHint.isHidden = !p.isCustom
+            keysLink.isHidden = p.isCustom
+            keysLink.title = L("Где взять ключ \(p.name) →", "Get a \(p.name) key →")
+        }
+        let serviceTarget = ClosureTarget {
+            updateService()
+            model.removeAllItems()
+            model.stringValue = ""
+            status.stringValue = ""
+            if !provider.isCustom, !key.stringValue.isEmpty { loadModels(pickDefault: true) }
+        }
+        service.target = serviceTarget
+        service.action = #selector(ClosureTarget.fire)
+
+        // A pasted key tells which service it is from; after a short pause the model list loads.
+        var pause: Timer?
+        let keyWatcher = TextChangeWatcher {
+            if let guess = BrainProviders.fromKey(key.stringValue), guess.id != provider.id,
+               !(provider.isCustom && !url.stringValue.isEmpty) {
+                service.selectItem(at: BrainProviders.all.firstIndex { $0.id == guess.id } ?? 0)
+                updateService()
+                model.removeAllItems()
+                model.stringValue = ""
+                status.stringValue = L("Похоже на ключ \(guess.name), выбрал его.", "Looks like a \(guess.name) key, selected it.")
+            }
+            pause?.invalidate()
+            guard !key.stringValue.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+            pause = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: false) { _ in loadModels(pickDefault: true) }
+            RunLoop.current.add(pause!, forMode: .modalPanel)
+        }
+        key.delegate = keyWatcher
+
+        let reload = ClosureButton(title: L("Обновить список", "Reload List")) {
+            loadModels(pickDefault: model.stringValue.trimmingCharacters(in: .whitespaces).isEmpty)
+        }
+
+        let stack = NSStackView(views: [label(L("Сервис", "Service")), service,
+                                        label(L("Ключ API", "API Key")), key, keysLink,
+                                        urlLabel, url, urlHint,
+                                        label(L("Модель", "Model")), model, reload, status])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 5
-        for v in [url, urlHint, key, model, status] as [NSView] {
+        for v in [service, key, url, urlHint, model, status] as [NSView] {
             v.translatesAutoresizingMaskIntoConstraints = false
             v.widthAnchor.constraint(equalToConstant: w).isActive = true
         }
-        stack.setCustomSpacing(2, after: url)
-        stack.setCustomSpacing(10, after: urlHint)
-        stack.setCustomSpacing(10, after: key)
-        stack.frame = NSRect(x: 0, y: 0, width: w, height: 262)
+        stack.setCustomSpacing(12, after: service)
+        stack.setCustomSpacing(12, after: keysLink)
+        stack.setCustomSpacing(12, after: urlHint)
+        updateService()
+        stack.frame = NSRect(x: 0, y: 0, width: w, height: 290)
         a.accessoryView = stack
         a.addButton(withTitle: L("Сохранить и включить", "Save and Turn On"))
         a.addButton(withTitle: L("Отмена", "Cancel"))
-        a.window.initialFirstResponder = url
-        while true {
-            guard a.runModal() == .alertFirstButtonReturn else { return }
-            guard BrainServer.completionsURL(url.stringValue) != nil,
-                  !model.stringValue.trimmingCharacters(in: .whitespaces).isEmpty else {
-                status.stringValue = L("Нужны адрес вида https://… и модель.", "An https://… address and a model are required.")
+        a.window.initialFirstResponder = key.stringValue.isEmpty ? key : model
+        if !key.stringValue.isEmpty, !provider.isCustom {
+            onMainInModal { loadModels(pickDefault: model.stringValue.isEmpty) }
+        }
+        // service.target and key.delegate are weak: keep their owners alive while the dialog runs.
+        let saveIt: Bool = withExtendedLifetime((serviceTarget, keyWatcher)) {
+          while true {
+            guard a.runModal() == .alertFirstButtonReturn else { return false }
+            let m = model.stringValue.trimmingCharacters(in: .whitespaces)
+            if BrainServer.completionsURL(endpoint) == nil {
+                status.stringValue = L("Впиши адрес сервера вида https://… или http://…", "Enter a server address like https://… or http://…")
                 continue
             }
-            if BrainServer.insecureRemote(url.stringValue) {
+            if !provider.isCustom, key.stringValue.trimmingCharacters(in: .whitespaces).isEmpty {
+                status.stringValue = L("Вставь ключ.", "Paste the key.")
+                continue
+            }
+            if m.isEmpty {
+                status.stringValue = L("Выбери модель или нажми «Обновить список».", "Pick a model or press Reload List.")
+                continue
+            }
+            if BrainServer.insecureRemote(endpoint) {
                 let warn = NSAlert()
                 warn.messageText = L("Адрес без шифрования", "Unencrypted Address")
                 warn.informativeText = L("Адрес начинается с http://, а сервер не на этом маке и не в домашней сети. Текст и ключ пойдут по интернету открыто. Лучше https://. Всё равно сохранить?",
@@ -1073,9 +1161,11 @@ final class App: NSObject, NSApplicationDelegate {
                 warn.addButton(withTitle: L("Исправить", "Edit"))
                 if warn.runModal() != .alertFirstButtonReturn { continue }
             }
-            break
+            return true
+          }
         }
-        BrainServer.baseURL = url.stringValue
+        guard saveIt else { return }
+        BrainServer.baseURL = endpoint
         BrainServer.apiKey = key.stringValue
         BrainServer.model = model.stringValue
         Brain.shared.chosenId = BrainServer.id

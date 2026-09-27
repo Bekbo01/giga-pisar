@@ -716,3 +716,93 @@ final class ClosureButton: NSButton {
     }
     @objc private func fire() { handler() }
 }
+
+/// Target/action and text-change callbacks as closures, for dialogs built in code.
+final class ClosureTarget: NSObject {
+    private let handler: () -> Void
+    init(_ handler: @escaping () -> Void) { self.handler = handler }
+    @objc func fire() { handler() }
+}
+
+final class TextChangeWatcher: NSObject, NSTextFieldDelegate {
+    private let handler: () -> Void
+    init(_ handler: @escaping () -> Void) { self.handler = handler }
+    func controlTextDidChange(_ obj: Notification) { handler() }
+}
+
+// MARK: known cloud services
+
+struct BrainProvider {
+    let id: String
+    let name: String
+    let baseURL: String           // empty for "own server"
+    let preferredModels: [String]
+    let keysURL: String
+    var isCustom: Bool { baseURL.isEmpty }
+}
+
+enum BrainProviders {
+    static let deepseek = BrainProvider(id: "deepseek", name: "DeepSeek", baseURL: "https://api.deepseek.com/v1",
+                                        preferredModels: ["deepseek-flash", "deepseek-chat"], keysURL: "https://platform.deepseek.com/api_keys")
+    static let openrouter = BrainProvider(id: "openrouter", name: "OpenRouter", baseURL: "https://openrouter.ai/api/v1",
+                                          preferredModels: ["deepseek/deepseek-chat-v3-0324", "deepseek/deepseek-chat", "google/gemini-2.5-flash", "openai/gpt-4.1-mini"],
+                                          keysURL: "https://openrouter.ai/keys")
+    static let openai = BrainProvider(id: "openai", name: "OpenAI", baseURL: "https://api.openai.com/v1",
+                                      preferredModels: ["gpt-4.1-mini", "gpt-4o-mini"], keysURL: "https://platform.openai.com/api-keys")
+    static let groq = BrainProvider(id: "groq", name: "Groq", baseURL: "https://api.groq.com/openai/v1",
+                                    preferredModels: ["llama-3.3-70b-versatile"], keysURL: "https://console.groq.com/keys")
+    static let gemini = BrainProvider(id: "gemini", name: "Google Gemini", baseURL: "https://generativelanguage.googleapis.com/v1beta/openai",
+                                      preferredModels: ["gemini-2.5-flash", "gemini-2.0-flash"], keysURL: "https://aistudio.google.com/apikey")
+    static let anthropic = BrainProvider(id: "anthropic", name: "Anthropic (Claude)", baseURL: "https://api.anthropic.com/v1",
+                                         preferredModels: ["claude-haiku-4-5"], keysURL: "https://console.anthropic.com/settings/keys")
+    static let custom = BrainProvider(id: "custom", name: "", baseURL: "", preferredModels: [], keysURL: "")
+    static let all = [deepseek, openrouter, openai, groq, gemini, anthropic, custom]
+
+    static func title(_ p: BrainProvider) -> String {
+        p.isCustom ? L("Свой сервер (LM Studio, Ollama…)", "Own Server (LM Studio, Ollama…)") : p.name
+    }
+
+    /// Guesses the service from the look of the key; nil when it could be anything.
+    static func fromKey(_ raw: String) -> BrainProvider? {
+        let k = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if k.hasPrefix("sk-or-") { return openrouter }
+        if k.hasPrefix("sk-ant-") { return anthropic }
+        if k.hasPrefix("gsk_") { return groq }
+        if k.hasPrefix("AIza") { return gemini }
+        if k.range(of: "^sk-[0-9a-f]{32}$", options: .regularExpression) != nil { return deepseek }
+        if k.hasPrefix("sk-") { return openai }
+        return nil
+    }
+
+    static func fromURL(_ raw: String) -> BrainProvider {
+        var u = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        while u.hasSuffix("/") { u.removeLast() }
+        if u.lowercased().hasSuffix("/chat/completions") { u.removeLast("/chat/completions".count) }
+        return all.first { !$0.isCustom && $0.baseURL.caseInsensitiveCompare(u) == .orderedSame } ?? custom
+    }
+
+    /// Only chat models: no embeddings, speech, images and the like.
+    static func chatModels(_ ids: [String]) -> [String] {
+        let skip = "embed|whisper|tts|dall-e|moderation|image|audio|realtime|transcribe|search|guard|imagen|veo|aqa"
+        var seen = Set<String>()
+        return ids.filter { $0.range(of: skip, options: [.regularExpression, .caseInsensitive]) == nil }
+            .map { $0.hasPrefix("models/") ? String($0.dropFirst("models/".count)) : $0 }
+            .filter { seen.insert($0).inserted }
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    static func pickDefault(_ p: BrainProvider, _ models: [String]) -> String? {
+        for want in p.preferredModels {
+            if let hit = models.first(where: { $0.caseInsensitiveCompare(want) == .orderedSame })
+                ?? models.first(where: { $0.localizedCaseInsensitiveContains(want) }) { return hit }
+        }
+        return models.first ?? p.preferredModels.first
+    }
+}
+
+/// Runs on the main thread even while a modal dialog is up and even if the dialog itself was
+/// opened from a main-queue block (which keeps DispatchQueue.main from draining until it returns).
+func onMainInModal(_ f: @escaping () -> Void) {
+    RunLoop.main.perform(inModes: [.common, .modalPanel], block: f)
+    CFRunLoopWakeUp(CFRunLoopGetMain())
+}
