@@ -484,7 +484,7 @@ final class App: NSObject, NSApplicationDelegate {
                                sub: L("без команды; удобно с быстрым сервером", "no command needed; best with a fast server"),
                                icon: "text.badge.checkmark", action: #selector(toggleEveryTake))
             every.state = Brain.shared.everyTake ? .on : .off
-            every.isEnabled = Brain.shared.chosenId != nil
+            every.isEnabled = Brain.shared.ready
             menu.addItem(every)
             // как звать Писаря: менюшка у курсора или только голосом
             menu.addItem(NSMenuItem.separator())
@@ -495,7 +495,7 @@ final class App: NSObject, NSApplicationDelegate {
                                   action: #selector(pickChipsMode(_:)))
             menuMode.representedObject = "menu"
             menuMode.state = Brain.shared.chipsEnabled ? .on : .off
-            menuMode.isEnabled = Brain.shared.chosenId != nil
+            menuMode.isEnabled = Brain.shared.ready
             menu.addItem(menuMode)
             let voiceMode = mkItem(L("Только голосом", "Voice Only"),
                                    sub: L("скажи в конце: «Писарь, исправь / переведи…»",
@@ -504,7 +504,7 @@ final class App: NSObject, NSApplicationDelegate {
                                    action: #selector(pickChipsMode(_:)))
             voiceMode.representedObject = "voice"
             voiceMode.state = Brain.shared.chipsEnabled ? .off : .on
-            voiceMode.isEnabled = Brain.shared.chosenId != nil
+            voiceMode.isEnabled = Brain.shared.ready
             menu.addItem(voiceMode)
         }
         menu.addItem(NSMenuItem.separator())
@@ -1485,6 +1485,10 @@ final class App: NSObject, NSApplicationDelegate {
 if CommandLine.arguments.count >= 3, CommandLine.arguments[1] == "--brain-test" {
     let input = ((try? String(contentsOfFile: CommandLine.arguments[2], encoding: .utf8)) ?? "")
         .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !input.isEmpty, Brain.shared.ready else {
+        print("brain-test: empty input or the Brain is not set up (choice: \(Brain.shared.chosenId ?? "off"))")
+        exit(2)
+    }
     let parsed = Brain.parseCommand(input)
     let started = Date()
     var result: String?

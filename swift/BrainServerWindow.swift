@@ -62,6 +62,7 @@ final class BrainServerWindow: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         for p in BrainProviders.all { service.addItem(withTitle: BrainProviders.title(p)) }
         let savedProvider = BrainServer.baseURL.isEmpty ? BrainProviders.deepseek : BrainProviders.fromURL(BrainServer.baseURL)
         service.selectItem(at: BrainProviders.all.firstIndex { $0.id == savedProvider.id } ?? 0)
+        lastProviderId = savedProvider.id
         service.target = self
         service.action = #selector(serviceChanged)
 
@@ -173,7 +174,16 @@ final class BrainServerWindow: NSObject, NSWindowDelegate, NSTextFieldDelegate {
 
     // MARK: actions
 
+    private var lastProviderId = ""
+
     @objc private func serviceChanged() {
+        // A cloud key must never travel to an address typed for "own server" (and back).
+        if provider.isCustom != (BrainProviders.all.first { $0.id == lastProviderId }?.isCustom ?? provider.isCustom) {
+            key.stringValue = ""
+        }
+        lastProviderId = provider.id
+        loadSerial += 1          // drop answers of a load for the previous service
+        reload.isEnabled = true
         updateService()
         model.removeAllItems()
         model.stringValue = ""
@@ -195,13 +205,19 @@ final class BrainServerWindow: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         if let guess = BrainProviders.fromKey(key.stringValue), guess.id != provider.id,
            !(provider.isCustom && !url.stringValue.isEmpty) {
             service.selectItem(at: BrainProviders.all.firstIndex { $0.id == guess.id } ?? 0)
+            lastProviderId = guess.id
+            loadSerial += 1
             updateService()
             model.removeAllItems()
             model.stringValue = ""
             status.stringValue = L("Похоже на ключ \(guess.name), выбрал его.", "Looks like a \(guess.name) key, selected it.")
         }
         pause?.invalidate()
-        guard !key.stringValue.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        guard !key.stringValue.trimmingCharacters(in: .whitespaces).isEmpty else {
+            loadSerial += 1
+            reload.isEnabled = true
+            return
+        }
         let t = Timer(timeInterval: 0.6, repeats: false) { [weak self] _ in self?.loadModels(pickDefault: true) }
         RunLoop.main.add(t, forMode: .modalPanel)
         RunLoop.main.add(t, forMode: .default)
@@ -269,17 +285,18 @@ final class BrainServerWindow: NSObject, NSWindowDelegate, NSTextFieldDelegate {
             status.stringValue = L("Выбери модель или нажми «Обновить».", "Pick a model or press Reload.")
             return
         }
-        if BrainServer.insecureRemote(endpoint) {
-            let warn = NSAlert()
-            warn.messageText = L("Адрес без шифрования", "Unencrypted Address")
-            warn.informativeText = L("Адрес начинается с http://, а сервер не на этом маке и не в домашней сети. Текст и ключ пойдут по интернету открыто. Лучше https://. Всё равно сохранить?",
-                                     "The address starts with http:// and the server is neither on this Mac nor on your home network. Text and key will cross the internet in the clear. Prefer https://. Save anyway?")
-            warn.addButton(withTitle: L("Сохранить", "Save"))
-            warn.addButton(withTitle: L("Исправить", "Edit"))
-            guard warn.runModal() == .alertFirstButtonReturn else { return }
+        // macOS itself blocks plain http beyond this Mac and the local network (App Transport Security).
+        guard !BrainServer.insecureRemote(endpoint) else {
+            status.stringValue = L("Для сервера в интернете нужен адрес https://. Обычный http работает только на этом маке и в домашней сети.",
+                                   "A server on the internet needs an https:// address. Plain http works only on this Mac and your home network.")
+            return
+        }
+        guard BrainServer.saveKey(k) else {
+            status.stringValue = L("Не получилось сохранить ключ в Связку ключей. Попробуй ещё раз.",
+                                   "Could not save the key to the Keychain. Try again.")
+            return
         }
         BrainServer.baseURL = endpoint
-        BrainServer.apiKey = k
         BrainServer.model = m
         saved = true
         NSApp.stopModal()

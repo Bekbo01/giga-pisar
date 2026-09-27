@@ -39,31 +39,38 @@ enum BrainServer {
         set { UserDefaults.standard.set(newValue.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "brainServerModel") }
     }
 
-    static var apiKey: String {
-        get {
-            let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-                                    kSecAttrService as String: keychainService,
-                                    kSecAttrAccount as String: keychainAccount,
-                                    kSecReturnData as String: true,
-                                    kSecMatchLimit as String: kSecMatchLimitOne]
-            var out: AnyObject?
-            guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess,
-                  let data = out as? Data else { return "" }
-            return String(data: data, encoding: .utf8) ?? ""
+    /// Stores the key (empty removes it). Returns false when the Keychain refused.
+    @discardableResult
+    static func saveKey(_ raw: String) -> Bool {
+        let base: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                                   kSecAttrService as String: keychainService,
+                                   kSecAttrAccount as String: keychainAccount]
+        let key = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if key.isEmpty {
+            let s = SecItemDelete(base as CFDictionary)
+            return s == errSecSuccess || s == errSecItemNotFound
         }
-        set {
-            let base: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-                                       kSecAttrService as String: keychainService,
-                                       kSecAttrAccount as String: keychainAccount]
-            SecItemDelete(base as CFDictionary)
-            let key = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !key.isEmpty else { return }
+        // Update in place, so a failed write never loses the old key.
+        var status = SecItemUpdate(base as CFDictionary, [kSecValueData as String: Data(key.utf8)] as CFDictionary)
+        if status == errSecItemNotFound {
             var add = base
             add[kSecValueData as String] = Data(key.utf8)
-            add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-            let status = SecItemAdd(add as CFDictionary, nil)
-            if status != errSecSuccess { NSLog("Giga brain: keychain save failed (\(status))") }
+            status = SecItemAdd(add as CFDictionary, nil)
         }
+        if status != errSecSuccess { NSLog("Giga brain: keychain save failed (\(status))") }
+        return status == errSecSuccess
+    }
+
+    static var apiKey: String {
+        let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                                kSecAttrService as String: keychainService,
+                                kSecAttrAccount as String: keychainAccount,
+                                kSecReturnData as String: true,
+                                kSecMatchLimit as String: kSecMatchLimitOne]
+        var out: AnyObject?
+        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess,
+              let data = out as? Data else { return "" }
+        return String(data: data, encoding: .utf8) ?? ""
     }
 
     /// ".../v1" -> ".../v1/chat/completions"; the full path is accepted as is.
@@ -96,6 +103,14 @@ enum BrainServer {
         return true
     }
 
+    /// macOS (App Transport Security) lets plain http reach only this Mac and the local network.
+    static func atsBlocked(_ error: Error?) -> Bool {
+        (error as? URLError)?.code == .appTransportSecurityRequiresSecureConnection
+    }
+    static var httpsNeeded: String {
+        L("для сервера в интернете нужен адрес https://", "a server on the internet needs an https:// address")
+    }
+
     static func request(_ url: URL, key: String) -> URLRequest {
         var req = URLRequest(url: url)
         if !key.isEmpty { req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization") }
@@ -111,7 +126,12 @@ enum BrainServer {
         var req = request(url, key: key)
         req.timeoutInterval = 20
         URLSession.shared.dataTask(with: req) { data, resp, error in
-            if let error { done(.failure(error)); return }
+            if let error {
+                done(.failure(atsBlocked(error)
+                    ? NSError(domain: "Giga", code: -1022, userInfo: [NSLocalizedDescriptionKey: httpsNeeded])
+                    : error))
+                return
+            }
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
             guard code == 200, let data,
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -657,7 +677,15 @@ final class Brain: NSObject, URLSessionDownloadDelegate {
     /// The same request to the user's server. Some APIs reject parameters they do not know
     /// (temperature on reasoning models, reasoning_effort elsewhere) with 400: then we retry
     /// once with the bare minimum, model and messages.
-    private func chatServer(messages: [[String: String]], lean: Bool, done: @escaping (String?) -> Void) {
+    /// Servers that rejected the extra parameters once; for them we go lean right away (per address and model).
+    private static var leanServers = Set<String>()
+    private static let leanLock = NSLock()
+
+    private func chatServer(messages: [[String: String]], lean requested: Bool, done: @escaping (String?) -> Void) {
+        let serverId = BrainServer.baseURL + "|" + BrainServer.model
+        Self.leanLock.lock()
+        let lean = requested || Self.leanServers.contains(serverId)
+        Self.leanLock.unlock()
         guard let url = BrainServer.completionsURL(BrainServer.baseURL) else {
             lastFailure = L("не задан адрес сервера", "no server address")
             done(nil); return
@@ -674,8 +702,9 @@ final class Brain: NSObject, URLSessionDownloadDelegate {
         req.timeoutInterval = 60
         URLSession.shared.dataTask(with: req) { data, resp, error in
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
-            if code == 400, !lean {
+            if code == 400 || code == 422, !lean {
                 NSLog("Giga brain: server rejected extra parameters, retrying lean")
+                Self.leanLock.lock(); Self.leanServers.insert(serverId); Self.leanLock.unlock()
                 self.chatServer(messages: messages, lean: true, done: done)
                 return
             }
@@ -688,13 +717,15 @@ final class Brain: NSObject, URLSessionDownloadDelegate {
                   !text.isEmpty
             else {
                 NSLog("Giga brain: server failed, code \(code), \(error?.localizedDescription ?? "no text")")
-                self.lastFailure = switch code {
+                let reason: String = switch code {
+                case 200: L("сервер вернул пустой ответ", "the server returned an empty answer")
                 case 401, 403: L("сервер не принял ключ", "the server rejected the key")
                 case 404: L("сервер не знает такую модель или адрес", "the server does not know this model or address")
                 case 429: L("сервер просит подождать или пополнить счёт", "the server asks to wait or top up")
                 case 0: L("сервер не отвечает", "the server does not answer")
                 default: L("сервер ответил ошибкой \(code)", "the server answered with error \(code)")
                 }
+                self.lastFailure = BrainServer.atsBlocked(error) ? BrainServer.httpsNeeded : reason
                 done(nil)
                 return
             }
@@ -703,32 +734,7 @@ final class Brain: NSObject, URLSessionDownloadDelegate {
     }
 }
 
-/// NSButton with a closure instead of target/action, for small dialogs built in code.
-final class ClosureButton: NSButton {
-    private var handler: () -> Void = {}
-    convenience init(title: String, handler: @escaping () -> Void) {
-        self.init(frame: .zero)
-        self.title = title
-        bezelStyle = .rounded
-        self.handler = handler
-        target = self
-        action = #selector(fire)
-    }
-    @objc private func fire() { handler() }
-}
 
-/// Target/action and text-change callbacks as closures, for dialogs built in code.
-final class ClosureTarget: NSObject {
-    private let handler: () -> Void
-    init(_ handler: @escaping () -> Void) { self.handler = handler }
-    @objc func fire() { handler() }
-}
-
-final class TextChangeWatcher: NSObject, NSTextFieldDelegate {
-    private let handler: () -> Void
-    init(_ handler: @escaping () -> Void) { self.handler = handler }
-    func controlTextDidChange(_ obj: Notification) { handler() }
-}
 
 // MARK: known cloud services
 
@@ -770,7 +776,8 @@ enum BrainProviders {
         if k.hasPrefix("gsk_") { return groq }
         if k.hasPrefix("AIza") { return gemini }
         if k.range(of: "^sk-[0-9a-f]{32}$", options: .regularExpression) != nil { return deepseek }
-        if k.hasPrefix("sk-") { return openai }
+        // Plain "sk-" is used by several services; only OpenAI's long keys are a safe guess.
+        if k.hasPrefix("sk-proj-") || k.hasPrefix("sk-svcacct-") || (k.hasPrefix("sk-") && k.count >= 45) { return openai }
         return nil
     }
 
