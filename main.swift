@@ -1002,7 +1002,12 @@ final class App: NSObject, NSApplicationDelegate {
             return t
         }
         let url = NSTextField(string: BrainServer.baseURL)
-        url.placeholderString = "https://openrouter.ai/api/v1"
+        url.placeholderString = L("например https://openrouter.ai/api/v1", "e.g. https://openrouter.ai/api/v1")
+        let urlHint = NSTextField(wrappingLabelWithString: L("OpenRouter: https://openrouter.ai/api/v1 · DeepSeek: https://api.deepseek.com/v1 · OpenAI: https://api.openai.com/v1 · LM Studio: http://localhost:1234/v1",
+                                                             "OpenRouter: https://openrouter.ai/api/v1 · DeepSeek: https://api.deepseek.com/v1 · OpenAI: https://api.openai.com/v1 · LM Studio: http://localhost:1234/v1"))
+        urlHint.font = .systemFont(ofSize: 10)
+        urlHint.textColor = .tertiaryLabelColor
+        urlHint.isSelectable = true
         let key = NSSecureTextField(string: BrainServer.apiKey)
         key.placeholderString = L("ключ (для своего сервера можно пусто)", "key (may be empty for your own server)")
         let model = NSComboBox()
@@ -1013,6 +1018,12 @@ final class App: NSObject, NSApplicationDelegate {
         status.font = .systemFont(ofSize: 11)
         status.textColor = .secondaryLabelColor
         let refresh = ClosureButton(title: L("Загрузить список моделей", "Load Model List")) {
+            guard BrainServer.completionsURL(url.stringValue) != nil else {
+                status.stringValue = url.stringValue.trimmingCharacters(in: .whitespaces).isEmpty
+                    ? L("Сначала впишите адрес сервиса в поле «Адрес».", "Type the service address in the Address field first.")
+                    : L("Адрес должен начинаться с https:// или http://", "The address must start with https:// or http://")
+                return
+            }
             status.stringValue = L("Спрашиваю сервер…", "Asking the server…")
             BrainServer.fetchModels(base: url.stringValue, key: key.stringValue) { r in
                 DispatchQueue.main.async {
@@ -1029,18 +1040,19 @@ final class App: NSObject, NSApplicationDelegate {
                 }
             }
         }
-        let stack = NSStackView(views: [label(L("Адрес", "Address")), url, label(L("Ключ API", "API Key")), key,
+        let stack = NSStackView(views: [label(L("Адрес", "Address")), url, urlHint, label(L("Ключ API", "API Key")), key,
                                         label(L("Модель", "Model")), model, refresh, status])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 5
-        for v in [url, key, model, status] as [NSView] {
+        for v in [url, urlHint, key, model, status] as [NSView] {
             v.translatesAutoresizingMaskIntoConstraints = false
             v.widthAnchor.constraint(equalToConstant: w).isActive = true
         }
-        stack.setCustomSpacing(10, after: url)
+        stack.setCustomSpacing(2, after: url)
+        stack.setCustomSpacing(10, after: urlHint)
         stack.setCustomSpacing(10, after: key)
-        stack.frame = NSRect(x: 0, y: 0, width: w, height: 230)
+        stack.frame = NSRect(x: 0, y: 0, width: w, height: 262)
         a.accessoryView = stack
         a.addButton(withTitle: L("Сохранить и включить", "Save and Turn On"))
         a.addButton(withTitle: L("Отмена", "Cancel"))
