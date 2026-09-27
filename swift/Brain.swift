@@ -214,6 +214,12 @@ final class Brain: NSObject, URLSessionDownloadDelegate {
     }
     /// Send every take through the Brain, not only those ending with "Писарь, …". Off by default:
     /// with a local model every paste would wait seconds.
+    /// With text selected at the key press, the take is a command on the selection. On by default;
+    /// turned off, a selection changes nothing and plain dictation goes over it.
+    var onSelection: Bool {
+        get { UserDefaults.standard.object(forKey: "brainOnSelection") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "brainOnSelection") }
+    }
     var everyTake: Bool {
         get { UserDefaults.standard.bool(forKey: "brainEveryTake") }
         set { UserDefaults.standard.set(newValue, forKey: "brainEveryTake") }

@@ -507,6 +507,20 @@ final class App: NSObject, NSApplicationDelegate {
             voiceMode.isEnabled = Brain.shared.ready
             menu.addItem(voiceMode)
         }
+
+        // Editing a selection by voice: its own section, so it is clear what it is and how to turn it off.
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(mkHeader(L("Правка выделенного", "Edit Selection"),
+                              sub: L("выдели текст, зажми клавишу и скажи, что сделать", "select text, hold the key, say what to do")))
+        let editSel = mkItem(L("Править выделенный текст голосом", "Edit Selected Text by Voice"),
+                             sub: Brain.shared.ready
+                                ? L("«сделай короче», «переведи на английский»; ⌘Z вернёт как было",
+                                    "“make it shorter”, “translate to English”; ⌘Z undoes")
+                                : L("нужен Мозг: он и переписывает текст", "needs the Brain: it rewrites the text"),
+                             icon: "character.cursor.ibeam", action: #selector(toggleEditSelection))
+        editSel.state = Brain.shared.onSelection ? .on : .off
+        editSel.isEnabled = Brain.shared.ready
+        menu.addItem(editSel)
         menu.addItem(NSMenuItem.separator())
 
         menu.addItem(mkItem(L("Доступы…", "Permissions…"), icon: "lock.shield",
@@ -982,6 +996,11 @@ final class App: NSObject, NSApplicationDelegate {
         a.runModal()
     }
 
+    @objc func toggleEditSelection() {
+        Brain.shared.onSelection.toggle()
+        buildMenu()
+    }
+
     @objc func toggleEveryTake() {
         Brain.shared.everyTake.toggle()
         buildMenu()
@@ -1115,7 +1134,7 @@ final class App: NSObject, NSApplicationDelegate {
     /// и не в терминале (там выделения через Accessibility нет).
     func captureSelection() {
         selectionAtStart = nil
-        guard !frontIsTerminal, Brain.shared.ready else { return }
+        guard !frontIsTerminal, Brain.shared.ready, Brain.shared.onSelection else { return }
         let (text, length, silent) = selectedTextViaAX()
         if let text {
             selectionAtStart = text

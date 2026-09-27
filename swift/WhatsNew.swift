@@ -10,10 +10,12 @@ import AppKit
 let WHATS_NEW: [String] = uiIsRussian ? [
     "Мозг на своём сервере или в облаке по ключу: OpenRouter, DeepSeek, OpenAI, свой LM Studio. Работает и на маках с Intel",
     "Ключ хранится в Связке ключей, на сервер уходит только текст, звук остаётся на маке",
+    "Правка выделенного теперь отдельным пунктом в меню: видно, что это, и можно выключить",
     "Новая галочка в меню Мозга: править каждую диктовку без команды",
 ] : [
     "The Brain can think on your own server or a cloud model with a key: OpenRouter, DeepSeek, OpenAI, your LM Studio. Works on Intel Macs too",
     "The key is kept in the Keychain; only text goes to the server, audio stays on the Mac",
+    "Editing a selection by voice has its own menu item: clear what it is, and it can be turned off",
     "New Brain menu option: edit every take without a command",
 ]
 
