@@ -433,7 +433,7 @@ final class App: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem.separator())
         menu.addItem(mkHeader(L("Мозг Писаря", "Pisar's Brain"),
                               sub: L("причёсывает надиктованный текст", "polishes dictated text")))
-        if Brain.shared.engineAvailable {
+        do {
             menu.addItem(mkItem(L("Что это и как пользоваться…", "What It Is and How to Use It…"),
                                 icon: "questionmark.circle", action: #selector(showBrainHelp)))
             let off = mkItem(L("Выключен", "Off"), icon: "circle.slash",
@@ -441,7 +441,12 @@ final class App: NSObject, NSApplicationDelegate {
             off.representedObject = "off"
             off.state = Brain.shared.chosenId == nil ? .on : .off
             menu.addItem(off)
-            for m in BRAIN_MODELS {
+            if !Brain.shared.engineAvailable {
+                let no = mkItem(L("Нейронки на маке: нужен M-чип", "Models on this Mac: Apple Silicon only"))
+                no.isEnabled = false
+                menu.addItem(no)
+            }
+            for m in BRAIN_MODELS where Brain.shared.engineAvailable {
                 let it: NSMenuItem
                 if Brain.shared.downloadingId == m.id {
                     it = mkItem(L("\(m.name) — качаю \(Brain.shared.downloadPercent)%",
@@ -462,6 +467,25 @@ final class App: NSObject, NSApplicationDelegate {
                 it.representedObject = m.id
                 menu.addItem(it)
             }
+            // Own server or cloud with a key: works on any Mac, Intel included.
+            let srv = mkItem(BrainServer.configured ? L("Свой сервер", "Own Server") : L("Свой сервер или облако…", "Own Server or Cloud…"),
+                             sub: BrainServer.configured
+                                ? L("\(BrainServer.host) · \(BrainServer.model)", "\(BrainServer.host) · \(BrainServer.model)")
+                                : L("по ключу: OpenRouter, DeepSeek, OpenAI, свой LM Studio", "with a key: OpenRouter, DeepSeek, OpenAI, your LM Studio"),
+                             icon: "network", action: #selector(pickBrain(_:)))
+            srv.representedObject = BrainServer.id
+            srv.state = Brain.shared.usesServer ? .on : .off
+            menu.addItem(srv)
+            if BrainServer.configured {
+                menu.addItem(mkItem(L("Настроить сервер…", "Server Settings…"), icon: "slider.horizontal.3",
+                                    action: #selector(showBrainServer)))
+            }
+            let every = mkItem(L("Править каждую диктовку", "Edit Every Take"),
+                               sub: L("без команды; удобно с быстрым сервером", "no command needed; best with a fast server"),
+                               icon: "text.badge.checkmark", action: #selector(toggleEveryTake))
+            every.state = Brain.shared.everyTake ? .on : .off
+            every.isEnabled = Brain.shared.chosenId != nil
+            menu.addItem(every)
             // как звать Писаря: менюшка у курсора или только голосом
             menu.addItem(NSMenuItem.separator())
             let menuMode = mkItem(L("Менюшка после вставки", "Menu After Pasting"),
@@ -482,10 +506,6 @@ final class App: NSObject, NSApplicationDelegate {
             voiceMode.state = Brain.shared.chipsEnabled ? .off : .on
             voiceMode.isEnabled = Brain.shared.chosenId != nil
             menu.addItem(voiceMode)
-        } else {
-            let no = mkItem(L("Нужен мак с M-чипом", "Requires Apple Silicon"))
-            no.isEnabled = false
-            menu.addItem(no)
         }
         menu.addItem(NSMenuItem.separator())
 
@@ -942,28 +962,128 @@ final class App: NSObject, NSApplicationDelegate {
     @objc func showBrainHelp() {
         let a = NSAlert()
         a.messageText = L("Мозг Писаря", "Pisar's Brain")
-        a.informativeText = L("Нейронка внутри приложения: причёсывает, сокращает и переводит текст по твоей команде. Работает на этом маке, в интернет ничего не уходит.",
-                              "A neural net inside the app: it tidies, shortens and translates text on your command. Runs on this Mac, nothing goes online.")
+        a.informativeText = L("Нейронка причёсывает, сокращает и переводит текст по твоей команде. GigaChat и Qwen работают на этом маке, в интернет ничего не уходит. Можно подключить и свой сервер или облако по ключу.",
+                              "A neural net that tidies, shortens and translates text on your command. GigaChat and Qwen run on this Mac, nothing goes online. You can also plug in your own server or a cloud model with a key.")
         a.accessoryView = bulletsView(header: L("Как пользоваться", "How to use it"), lines: uiIsRussian ? [
             "Голосом: в конце диктовки скажи «Писарь, исправь», «Писарь, сократи» или «Писарь, переведи на английский»",
             "Менюшкой: после вставки у курсора появляются 1 причесать · 2 сократить · 3 перевести, жми цифру. Включается в этом же меню",
             "Над готовым текстом: выдели его, зажми \(currentHotkey().title) и скажи, что сделать («сделай короче», «переведи»). Результат встанет вместо выделенного, ⌘Z вернёт как было",
             "GigaChat: родной русский, 6,5 ГБ, маки от 16 ГБ. Qwen: лёгкая, 2,5 ГБ, русский неродной, но аккуратная",
             "Первый ответ ждёт секунд десять: нейронка поднимается с диска, дальше быстро",
+            "Свой сервер или облако: OpenRouter, DeepSeek, OpenAI, свой LM Studio. Быстрее и умнее, работает и на маках с Intel, но текст уходит на сервер (звук нет)",
         ] : [
             "By voice: end your dictation with “Pisar, fix this”, “Pisar, make it shorter” or “Pisar, translate to English”",
             "By menu: after pasting, 1 tidy up · 2 shorten · 3 translate appear at the cursor, press the digit. Turned on in this same menu",
             "On existing text: select it, hold \(currentHotkey().title) and say what to do (“make it shorter”, “translate”). The result replaces the selection, ⌘Z brings it back",
             "GigaChat: native Russian, 6.5 GB, Macs with 16 GB+. Qwen: light, 2.5 GB, non-native Russian but tidy",
             "The first reply takes about ten seconds while the model loads from disk, then it's fast",
+            "Own server or cloud: OpenRouter, DeepSeek, OpenAI, your LM Studio. Faster and smarter, works on Intel Macs too, but the text goes to the server (audio does not)",
         ], width: 360)
         a.runModal()
+    }
+
+    @objc func toggleEveryTake() {
+        Brain.shared.everyTake.toggle()
+        buildMenu()
+    }
+
+    /// Address, key and model of the user's server. Saving switches the Brain to it.
+    @objc func showBrainServer() {
+        NSApp.activate(ignoringOtherApps: true)
+        let a = NSAlert()
+        a.messageText = L("Мозг на своём сервере или в облаке", "Brain on Your Server or in the Cloud")
+        a.informativeText = L("Подойдёт любой сервис с OpenAI-совместимым API: OpenRouter, DeepSeek, OpenAI, свой LM Studio, Ollama или llama.cpp. Распознавание остаётся на маке, звук никуда не уходит, на сервер отправляется только готовый текст. Ключ хранится в Связке ключей.",
+                              "Any service with an OpenAI-compatible API works: OpenRouter, DeepSeek, OpenAI, or your own LM Studio, Ollama or llama.cpp. Recognition stays on this Mac and audio never leaves it; only the recognized text is sent. The key is kept in the Keychain.")
+        let w: CGFloat = 380
+        func label(_ s: String) -> NSTextField {
+            let t = NSTextField(labelWithString: s)
+            t.font = .systemFont(ofSize: 11, weight: .semibold)
+            t.textColor = .secondaryLabelColor
+            return t
+        }
+        let url = NSTextField(string: BrainServer.baseURL)
+        url.placeholderString = "https://openrouter.ai/api/v1"
+        let key = NSSecureTextField(string: BrainServer.apiKey)
+        key.placeholderString = L("ключ (для своего сервера можно пусто)", "key (may be empty for your own server)")
+        let model = NSComboBox()
+        model.stringValue = BrainServer.model
+        model.placeholderString = L("например deepseek-chat", "e.g. deepseek-chat")
+        model.completes = true
+        let status = NSTextField(labelWithString: "")
+        status.font = .systemFont(ofSize: 11)
+        status.textColor = .secondaryLabelColor
+        let refresh = ClosureButton(title: L("Загрузить список моделей", "Load Model List")) {
+            status.stringValue = L("Спрашиваю сервер…", "Asking the server…")
+            BrainServer.fetchModels(base: url.stringValue, key: key.stringValue) { r in
+                DispatchQueue.main.async {
+                    switch r {
+                    case .success(let ids):
+                        model.removeAllItems()
+                        model.addItems(withObjectValues: ids)
+                        status.stringValue = L("Моделей: \(ids.count). Выберите в списке или впишите сами.",
+                                               "\(ids.count) models. Pick one or type it in.")
+                        if model.stringValue.isEmpty, let first = ids.first { model.stringValue = first }
+                    case .failure(let e):
+                        status.stringValue = L("Не вышло: \(e.localizedDescription)", "Failed: \(e.localizedDescription)")
+                    }
+                }
+            }
+        }
+        let stack = NSStackView(views: [label(L("Адрес", "Address")), url, label(L("Ключ API", "API Key")), key,
+                                        label(L("Модель", "Model")), model, refresh, status])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 5
+        for v in [url, key, model, status] as [NSView] {
+            v.translatesAutoresizingMaskIntoConstraints = false
+            v.widthAnchor.constraint(equalToConstant: w).isActive = true
+        }
+        stack.setCustomSpacing(10, after: url)
+        stack.setCustomSpacing(10, after: key)
+        stack.frame = NSRect(x: 0, y: 0, width: w, height: 230)
+        a.accessoryView = stack
+        a.addButton(withTitle: L("Сохранить и включить", "Save and Turn On"))
+        a.addButton(withTitle: L("Отмена", "Cancel"))
+        a.window.initialFirstResponder = url
+        while true {
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+            guard BrainServer.completionsURL(url.stringValue) != nil,
+                  !model.stringValue.trimmingCharacters(in: .whitespaces).isEmpty else {
+                status.stringValue = L("Нужны адрес вида https://… и модель.", "An https://… address and a model are required.")
+                continue
+            }
+            if BrainServer.insecureRemote(url.stringValue) {
+                let warn = NSAlert()
+                warn.messageText = L("Адрес без шифрования", "Unencrypted Address")
+                warn.informativeText = L("Адрес начинается с http://, а сервер не на этом маке и не в домашней сети. Текст и ключ пойдут по интернету открыто. Лучше https://. Всё равно сохранить?",
+                                         "The address starts with http:// and the server is neither on this Mac nor on your home network. Text and key will cross the internet in the clear. Prefer https://. Save anyway?")
+                warn.addButton(withTitle: L("Сохранить", "Save"))
+                warn.addButton(withTitle: L("Исправить", "Edit"))
+                if warn.runModal() != .alertFirstButtonReturn { continue }
+            }
+            break
+        }
+        BrainServer.baseURL = url.stringValue
+        BrainServer.apiKey = key.stringValue
+        BrainServer.model = model.stringValue
+        Brain.shared.chosenId = BrainServer.id
+        Brain.shared.stopServer()
+        buildMenu()
+        Toast.shared.show(L("Мозг думает на \(BrainServer.host). Скажи в конце: «Писарь, исправь»",
+                            "The Brain thinks on \(BrainServer.host). End with “Pisar, fix this”"))
     }
 
     @objc func pickBrain(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String else { return }
         if id == "off" {
             Brain.shared.chosenId = nil
+            Brain.shared.stopServer()
+            buildMenu()
+            return
+        }
+        if id == BrainServer.id {
+            guard BrainServer.configured else { showBrainServer(); return }
+            Brain.shared.chosenId = id
             Brain.shared.stopServer()
             buildMenu()
             return
@@ -1069,7 +1189,7 @@ final class App: NSObject, NSApplicationDelegate {
     /// и не в терминале (там выделения через Accessibility нет).
     func captureSelection() {
         selectionAtStart = nil
-        guard !frontIsTerminal, Brain.shared.ready, Brain.shared.engineAvailable else { return }
+        guard !frontIsTerminal, Brain.shared.ready else { return }
         let (text, length, silent) = selectedTextViaAX()
         if let text {
             selectionAtStart = text
@@ -1124,7 +1244,7 @@ final class App: NSObject, NSApplicationDelegate {
         guard let sel = selectionAtStart else { return false }
         selectionAtStart = nil
         let cmd = Brain.stripAddress(speech)
-        guard !cmd.isEmpty, Brain.shared.ready, Brain.shared.engineAvailable else { return false }
+        guard !cmd.isEmpty, Brain.shared.ready else { return false }
         NSLog("Гига выделение: команда «\(cmd)» над \(sel.count) знаками")
         Brain.shared.transform(sel, command: cmd, mode: .selection) { [weak self] out in
             DispatchQueue.main.async {
@@ -1222,10 +1342,10 @@ final class App: NSObject, NSApplicationDelegate {
                 self.clipboardMark = pb.changeCount
                 // Обращение «Писарь, …» в конце? Сперва текст идёт в мозг.
                 if let (body, cmd) = Brain.parseCommand(text) {
-                    guard Brain.shared.ready, Brain.shared.engineAvailable else {
+                    guard Brain.shared.ready else {
                         self.setState(.idle)
                         self.paste(text)
-                        if Brain.shared.chosenId == nil, Brain.shared.engineAvailable {
+                        if Brain.shared.chosenId == nil {
                             Toast.shared.show(L("Похоже на команду Писарю — включи мозг в меню Гиги",
                                                 "Sounded like a Pisar command — pick a brain in the Giga menu"))
                         }
@@ -1242,6 +1362,21 @@ final class App: NSObject, NSApplicationDelegate {
                                 Toast.shared.show(Brain.shared.failureText(
                                     L("Писарь не справился — вставил как есть",
                                       "Pisar could not do it — pasted as is")))
+                            }
+                        }
+                    }
+                    return
+                }
+                // "Edit every take": no address needed, the whole take goes through the Brain.
+                if Brain.shared.everyTake, Brain.shared.ready {
+                    Brain.shared.transform(text, command: "исправь") { out in
+                        DispatchQueue.main.async {
+                            self.setState(.idle)
+                            self.paste(out ?? text)
+                            if out == nil {
+                                Toast.shared.show(Brain.shared.failureText(
+                                    L("Писарь не справился, вставил как есть",
+                                      "Pisar could not do it, pasted as is")))
                             }
                         }
                     }
@@ -1417,6 +1552,27 @@ final class App: NSObject, NSApplicationDelegate {
                                 "The cursor wasn't in a text field — your dictation is on the clipboard, press ⌘V"))
         }
     }
+}
+
+// Diagnostics: `Giga --brain-test in.txt` runs the saved Brain settings on the text
+// ("… Писарь, <command>" or plain text as "исправь") and prints the answer.
+if CommandLine.arguments.count >= 3, CommandLine.arguments[1] == "--brain-test" {
+    let input = ((try? String(contentsOfFile: CommandLine.arguments[2], encoding: .utf8)) ?? "")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    let parsed = Brain.parseCommand(input)
+    let started = Date()
+    var result: String?
+    var finished = false
+    Brain.shared.transform(parsed?.body ?? input, command: parsed?.command ?? "исправь") { out in
+        result = out
+        finished = true
+    }
+    while !finished { RunLoop.main.run(until: Date().addingTimeInterval(0.1)) }
+    let ms = Int(Date().timeIntervalSince(started) * 1000)
+    print("brain=\(Brain.shared.chosenId ?? "off") command=\(parsed?.command ?? "(every take)") ms=\(ms)")
+    print(result ?? "FAILED: \(Brain.shared.failureText("no answer"))")
+    Brain.shared.stopServer()
+    exit(result == nil ? 1 : 0)
 }
 
 let app = NSApplication.shared

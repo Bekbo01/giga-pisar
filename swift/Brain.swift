@@ -16,6 +16,114 @@
 // текст: диктовка не имеет права сломаться из-за мозга.
 
 import AppKit
+import Security
+
+// MARK: own server (OpenAI-compatible API)
+//
+// Instead of a local model the Brain can think on a server the user picks:
+// a cloud service with a key (OpenRouter, DeepSeek, OpenAI…) or their own
+// LM Studio / Ollama / llama.cpp. Only the recognized text is sent, never
+// audio. The key lives in the login keychain, not in UserDefaults.
+
+enum BrainServer {
+    static let id = "server"
+    private static let keychainService = "Giga Pisar Brain"
+    private static let keychainAccount = "api-key"
+
+    static var baseURL: String {
+        get { UserDefaults.standard.string(forKey: "brainServerURL") ?? "" }
+        set { UserDefaults.standard.set(newValue.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "brainServerURL") }
+    }
+    static var model: String {
+        get { UserDefaults.standard.string(forKey: "brainServerModel") ?? "" }
+        set { UserDefaults.standard.set(newValue.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "brainServerModel") }
+    }
+
+    static var apiKey: String {
+        get {
+            let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                                    kSecAttrService as String: keychainService,
+                                    kSecAttrAccount as String: keychainAccount,
+                                    kSecReturnData as String: true,
+                                    kSecMatchLimit as String: kSecMatchLimitOne]
+            var out: AnyObject?
+            guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess,
+                  let data = out as? Data else { return "" }
+            return String(data: data, encoding: .utf8) ?? ""
+        }
+        set {
+            let base: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                                       kSecAttrService as String: keychainService,
+                                       kSecAttrAccount as String: keychainAccount]
+            SecItemDelete(base as CFDictionary)
+            let key = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty else { return }
+            var add = base
+            add[kSecValueData as String] = Data(key.utf8)
+            add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+            let status = SecItemAdd(add as CFDictionary, nil)
+            if status != errSecSuccess { NSLog("Giga brain: keychain save failed (\(status))") }
+        }
+    }
+
+    /// ".../v1" -> ".../v1/chat/completions"; the full path is accepted as is.
+    static func completionsURL(_ base: String) -> URL? {
+        var s = base.trimmingCharacters(in: .whitespacesAndNewlines)
+        while s.hasSuffix("/") { s.removeLast() }
+        guard let u = URL(string: s), let scheme = u.scheme?.lowercased(),
+              scheme == "http" || scheme == "https", u.host != nil else { return nil }
+        return s.lowercased().hasSuffix("/chat/completions") ? u : URL(string: s + "/chat/completions")
+    }
+    static func modelsURL(_ base: String) -> URL? {
+        guard let c = completionsURL(base) else { return nil }
+        return c.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("models")
+    }
+
+    static var configured: Bool { completionsURL(baseURL) != nil && !model.isEmpty }
+    /// "api.deepseek.com" for menus.
+    static var host: String { URL(string: baseURL.trimmingCharacters(in: .whitespaces))?.host ?? baseURL }
+
+    /// Plain http to somewhere that is neither this Mac nor the local network: text and key travel in the clear.
+    static func insecureRemote(_ base: String) -> Bool {
+        guard let u = URL(string: base.trimmingCharacters(in: .whitespaces)), u.scheme?.lowercased() == "http",
+              let h = u.host?.lowercased() else { return false }
+        if h == "localhost" || h == "127.0.0.1" || h == "::1" || h.hasSuffix(".local") { return false }
+        let p = h.split(separator: ".").compactMap { Int($0) }
+        if p.count == 4 {
+            if p[0] == 10 || (p[0] == 192 && p[1] == 168) || (p[0] == 172 && (16...31).contains(p[1]))
+                || (p[0] == 100 && (64...127).contains(p[1])) { return false }
+        }
+        return true
+    }
+
+    static func request(_ url: URL, key: String) -> URLRequest {
+        var req = URLRequest(url: url)
+        if !key.isEmpty { req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization") }
+        return req
+    }
+
+    /// Model ids from GET /models, for the picker.
+    static func fetchModels(base: String, key: String, done: @escaping (Result<[String], Error>) -> Void) {
+        guard let url = modelsURL(base) else {
+            done(.failure(NSError(domain: "Giga", code: 1, userInfo: [NSLocalizedDescriptionKey: L("неверный адрес", "invalid address")])))
+            return
+        }
+        var req = request(url, key: key)
+        req.timeoutInterval = 20
+        URLSession.shared.dataTask(with: req) { data, resp, error in
+            if let error { done(.failure(error)); return }
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            guard code == 200, let data,
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let list = obj["data"] as? [[String: Any]] else {
+                done(.failure(NSError(domain: "Giga", code: code,
+                                      userInfo: [NSLocalizedDescriptionKey: L("сервер ответил \(code)", "server answered \(code)")])))
+                return
+            }
+            done(.success(list.compactMap { $0["id"] as? String }.sorted()))
+        }.resume()
+    }
+}
 
 struct BrainModel {
     let id: String
@@ -77,8 +185,19 @@ final class Brain: NSObject, URLSessionDownloadDelegate {
         get { UserDefaults.standard.bool(forKey: "brainChips") }
         set { UserDefaults.standard.set(newValue, forKey: "brainChips") }
     }
-    /// Мозг готов: модель выбрана и лежит на диске.
-    var ready: Bool { chosenModel.map { downloaded($0) } ?? false }
+    /// The Brain thinks on the user's server rather than on this Mac.
+    var usesServer: Bool { chosenId == BrainServer.id }
+    /// Ready to work: a server is set up, or a local model is chosen, on disk and the engine is here.
+    var ready: Bool {
+        if usesServer { return BrainServer.configured }
+        return engineAvailable && (chosenModel.map { downloaded($0) } ?? false)
+    }
+    /// Send every take through the Brain, not only those ending with "Писарь, …". Off by default:
+    /// with a local model every paste would wait seconds.
+    var everyTake: Bool {
+        get { UserDefaults.standard.bool(forKey: "brainEveryTake") }
+        set { UserDefaults.standard.set(newValue, forKey: "brainEveryTake") }
+    }
 
     /// Меню перерисовать (и процент скачивания показать) — дергает App.
     var onChange: (() -> Void)?
@@ -380,7 +499,7 @@ final class Brain: NSObject, URLSessionDownloadDelegate {
                    done: @escaping (String?) -> Void) {
         // холодный старт — нейронку ещё надо поднять с диска (~10 секунд),
         // человек должен видеть, что происходит, а не гадать
-        let cold = server?.isRunning != true || serverModelId != chosenId
+        let cold = !usesServer && (server?.isRunning != true || serverModelId != chosenId)
         // Перед холодным стартом смотрим, влезет ли модель в свободную
         // память. Не влезет — macOS начнёт выгружать чужое на диск, и старт
         // растянется на минуты. Лучше спросить заранее, чем молча висеть.
@@ -410,6 +529,17 @@ final class Brain: NSObject, URLSessionDownloadDelegate {
 
     private func transformNow(_ body: String, command: String, mode: Mode, cold: Bool,
                               done: @escaping (String?) -> Void) {
+        if usesServer {
+            stopServer()   // a local model left from before only eats memory
+            let action = Self.actionLabel(command)
+            DispatchQueue.main.async { Toast.shared.showSticky(action) }
+            lastFailure = nil
+            chat(body: body, command: command, mode: mode) { out in
+                DispatchQueue.main.async { Toast.shared.hide() }
+                done(out)
+            }
+            return
+        }
         ensureServer()
         scheduleIdleStop()
         let action = Self.actionLabel(command)
@@ -492,6 +622,10 @@ final class Brain: NSObject, URLSessionDownloadDelegate {
                 + "\n\nКоманда пользователя к тексту: \(command)."],
             ["role": "user", "content": body],
         ]
+        if usesServer {
+            chatServer(messages: messages, lean: false, done: done)
+            return
+        }
         let payload: [String: Any] = ["messages": messages,
                                       "temperature": 0.3, "max_tokens": 2048,
                                       // Qwen3 без «Instruct» умеет думать вслух блоком <think>:
@@ -519,4 +653,66 @@ final class Brain: NSObject, URLSessionDownloadDelegate {
             done(text)
         }.resume()
     }
+
+    /// The same request to the user's server. Some APIs reject parameters they do not know
+    /// (temperature on reasoning models, reasoning_effort elsewhere) with 400: then we retry
+    /// once with the bare minimum, model and messages.
+    private func chatServer(messages: [[String: String]], lean: Bool, done: @escaping (String?) -> Void) {
+        guard let url = BrainServer.completionsURL(BrainServer.baseURL) else {
+            lastFailure = L("не задан адрес сервера", "no server address")
+            done(nil); return
+        }
+        var payload: [String: Any] = ["model": BrainServer.model, "messages": messages]
+        if !lean {
+            payload["temperature"] = 0.3
+            payload["reasoning_effort"] = "none"
+        }
+        var req = BrainServer.request(url, key: BrainServer.apiKey)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+        req.timeoutInterval = 60
+        URLSession.shared.dataTask(with: req) { data, resp, error in
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            if code == 400, !lean {
+                NSLog("Giga brain: server rejected extra parameters, retrying lean")
+                self.chatServer(messages: messages, lean: true, done: done)
+                return
+            }
+            guard code == 200, let data,
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let choices = obj["choices"] as? [[String: Any]],
+                  let msg = choices.first?["message"] as? [String: Any],
+                  case let text = Self.stripThinking(msg["content"] as? String ?? "")
+                      .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !text.isEmpty
+            else {
+                NSLog("Giga brain: server failed, code \(code), \(error?.localizedDescription ?? "no text")")
+                self.lastFailure = switch code {
+                case 401, 403: L("сервер не принял ключ", "the server rejected the key")
+                case 404: L("сервер не знает такую модель или адрес", "the server does not know this model or address")
+                case 429: L("сервер просит подождать или пополнить счёт", "the server asks to wait or top up")
+                case 0: L("сервер не отвечает", "the server does not answer")
+                default: L("сервер ответил ошибкой \(code)", "the server answered with error \(code)")
+                }
+                done(nil)
+                return
+            }
+            done(text)
+        }.resume()
+    }
+}
+
+/// NSButton with a closure instead of target/action, for small dialogs built in code.
+final class ClosureButton: NSButton {
+    private var handler: () -> Void = {}
+    convenience init(title: String, handler: @escaping () -> Void) {
+        self.init(frame: .zero)
+        self.title = title
+        bezelStyle = .rounded
+        self.handler = handler
+        target = self
+        action = #selector(fire)
+    }
+    @objc private func fire() { handler() }
 }

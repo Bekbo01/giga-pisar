@@ -8,13 +8,13 @@ import AppKit
 
 /// Что изменилось в ЭТОЙ версии. Обновлять при каждом выпуске вместе с номером.
 let WHATS_NEW: [String] = uiIsRussian ? [
-    "Команды над выделенным текстом работают в Pages, Keynote и Numbers: выделил, зажал клавишу, сказал «сделай короче»",
-    "В Pages после диктовки больше нет лишней подсказки «курсор был не в тексте»",
-    "В меню Мозга у Qwen, скачанной раньше, показан её настоящий размер",
+    "Мозг на своём сервере или в облаке по ключу: OpenRouter, DeepSeek, OpenAI, свой LM Studio. Работает и на маках с Intel",
+    "Ключ хранится в Связке ключей, на сервер уходит только текст, звук остаётся на маке",
+    "Новая галочка в меню Мозга: править каждую диктовку без команды",
 ] : [
-    "Commands on selected text now work in Pages, Keynote and Numbers: select, hold the key, say “make it shorter”",
-    "No more spurious “the cursor wasn't in a text field” hint after dictating into Pages",
-    "The Brain menu shows the real size of a previously downloaded Qwen",
+    "The Brain can think on your own server or a cloud model with a key: OpenRouter, DeepSeek, OpenAI, your LM Studio. Works on Intel Macs too",
+    "The key is kept in the Keychain; only text goes to the server, audio stays on the Mac",
+    "New Brain menu option: edit every take without a command",
 ]
 
 /// Разбор поля notes из манифеста: словарь по языкам, список или строка.
