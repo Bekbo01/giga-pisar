@@ -8,15 +8,13 @@ import AppKit
 
 /// Что изменилось в ЭТОЙ версии. Обновлять при каждом выпуске вместе с номером.
 let WHATS_NEW: [String] = uiIsRussian ? [
-    "Мозг в облаке по ключу: DeepSeek, OpenRouter, OpenAI или свой LM Studio. В меню Мозга пункт «В облаке…». Работает и на маках с Intel",
-    "Ключ хранится в Связке ключей, на сервер уходит только текст, звук остаётся на маке",
-    "Правка выделенного теперь отдельным пунктом в меню: видно, что это, и можно выключить",
-    "Новая галочка в меню Мозга: править каждую диктовку без команды",
+    "Если Мозг в облаке не отвечает, Писарь пишет причину: нет денег на счету API, сервис недоступен из страны, ключ не принят",
+    "При настройке облака Писарь проверяет модель пробным запросом, «всё работает» теперь значит, что нейросеть правда отвечает",
+    "Мозг в облаке по ключу: DeepSeek, OpenRouter, OpenAI и другие. В меню Мозга пункт «В облаке…»",
 ] : [
-    "The Brain in the cloud with a key: DeepSeek, OpenRouter, OpenAI or your LM Studio. Brain menu: “In the Cloud…”. Works on Intel Macs too",
-    "The key is kept in the Keychain; only text goes to the server, audio stays on the Mac",
-    "Editing a selection by voice has its own menu item: clear what it is, and it can be turned off",
-    "New Brain menu option: edit every take without a command",
+    "When the cloud Brain fails, Pisar says why: no API balance, the service is unavailable in your country, the key was rejected",
+    "Setting up the cloud Brain now checks the model with a test request, so “all set” means it really answers",
+    "The Brain in the cloud with a key: DeepSeek, OpenRouter, OpenAI and more. Brain menu: “In the Cloud…”",
 ]
 
 /// Разбор поля notes из манифеста: словарь по языкам, список или строка.

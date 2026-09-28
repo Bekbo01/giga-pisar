@@ -111,6 +111,62 @@ enum BrainServer {
         L("для сервера в интернете нужен адрес https://", "a server on the internet needs an https:// address")
     }
 
+    /// The error text an OpenAI-style server puts in {"error":{"message":…}} or {"message":…}.
+    static func serverMessage(_ data: Data?) -> String {
+        guard let data else { return "" }
+        if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let e = obj["error"] as? [String: Any], let m = e["message"] as? String { return m }
+            if let e = obj["error"] as? String { return e }
+            if let m = obj["message"] as? String { return m }
+        }
+        return String(data: data.prefix(200), encoding: .utf8) ?? ""
+    }
+
+    /// What went wrong, in words a person can act on; the raw server text goes to the log.
+    static func describeFailure(code: Int, body: Data?, error: Error?) -> String {
+        if atsBlocked(error) { return httpsNeeded }
+        if let e = error as? URLError {
+            return e.code == .timedOut ? L("сервер не ответил вовремя", "the server did not answer in time")
+                                       : L("нет связи с сервером, проверь интернет", "cannot reach the server, check the connection")
+        }
+        let raw = serverMessage(body)
+        if !raw.isEmpty { NSLog("Giga brain: server \(code): \(raw)") }
+        let m = (raw + " " + (body.flatMap { String(data: $0, encoding: .utf8) } ?? "")).lowercased()
+        if code == 402 || ["insufficient_quota", "quota", "billing", "balance", "credit", "payment"].contains(where: m.contains) {
+            return L("на счету сервиса нет денег или не подключена оплата API (это отдельно от подписки вроде ChatGPT Plus)",
+                     "no money on the service account or API billing is not set up (separate from subscriptions like ChatGPT Plus)")
+        }
+        if ["country", "region", "territory", "location"].contains(where: m.contains) {
+            return L("сервис недоступен из твоей страны", "the service is not available in your country")
+        }
+        switch code {
+        case 401: return L("сервис не принял ключ", "the service rejected the key")
+        case 403: return L("у ключа нет доступа к этой модели или сервису", "the key has no access to this model or service")
+        case 404: return L("модель недоступна для этого ключа, выбери другую", "the model is not available for this key, pick another one")
+        case 429: return L("слишком много запросов, попробуй через минуту", "too many requests, try again in a minute")
+        case 500...: return L("у сервиса сбой (ошибка \(code)), попробуй позже", "the service is failing (error \(code)), try later")
+        default: return L("сервис ответил ошибкой \(code)", "the service answered with error \(code)")
+        }
+    }
+
+    /// A one-word request: a key that lists models may still be unable to chat (no API balance,
+    /// no access to the model, a blocked country). done(nil) means the model answers.
+    static func probe(base: String, key: String, model: String, done: @escaping (String?) -> Void) {
+        guard let url = completionsURL(base) else { done(L("неверный адрес", "invalid address")); return }
+        var req = request(url, key: key)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.timeoutInterval = 20
+        req.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "model": model,
+            "messages": [["role": "user", "content": "Ответь одним словом: ок"]],
+        ])
+        URLSession.shared.dataTask(with: req) { data, resp, error in
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            done(code == 200 ? nil : describeFailure(code: code, body: data, error: error))
+        }.resume()
+    }
+
     static func request(_ url: URL, key: String) -> URLRequest {
         var req = URLRequest(url: url)
         if !key.isEmpty { req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization") }
@@ -723,15 +779,10 @@ final class Brain: NSObject, URLSessionDownloadDelegate {
                   !text.isEmpty
             else {
                 NSLog("Giga brain: server failed, code \(code), \(error?.localizedDescription ?? "no text")")
-                let reason: String = switch code {
-                case 200: L("сервер вернул пустой ответ", "the server returned an empty answer")
-                case 401, 403: L("сервер не принял ключ", "the server rejected the key")
-                case 404: L("сервер не знает такую модель или адрес", "the server does not know this model or address")
-                case 429: L("сервер просит подождать или пополнить счёт", "the server asks to wait or top up")
-                case 0: L("сервер не отвечает", "the server does not answer")
-                default: L("сервер ответил ошибкой \(code)", "the server answered with error \(code)")
-                }
-                self.lastFailure = BrainServer.atsBlocked(error) ? BrainServer.httpsNeeded : reason
+                let reason = code == 200
+                    ? L("сервер вернул пустой ответ", "the server returned an empty answer")
+                    : BrainServer.describeFailure(code: code, body: data, error: error)
+                self.lastFailure = reason
                 done(nil)
                 return
             }

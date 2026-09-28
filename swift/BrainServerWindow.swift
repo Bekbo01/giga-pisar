@@ -6,7 +6,7 @@
 
 import AppKit
 
-final class BrainServerWindow: NSObject, NSWindowDelegate, NSTextFieldDelegate {
+final class BrainServerWindow: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSComboBoxDelegate {
     private let window: NSWindow
     private let service = NSPopUpButton()
     private let key = NSSecureTextField()
@@ -85,6 +85,7 @@ final class BrainServerWindow: NSObject, NSWindowDelegate, NSTextFieldDelegate {
 
         model.stringValue = BrainServer.model
         model.completes = true
+        model.delegate = self
         reload.title = L("Обновить", "Reload")
         reload.bezelStyle = .rounded
         reload.controlSize = .small
@@ -249,8 +250,7 @@ final class BrainServerWindow: NSObject, NSWindowDelegate, NSTextFieldDelegate {
                     self.model.removeAllItems()
                     self.model.addItems(withObjectValues: ids)
                     self.model.stringValue = pickDefault || typed.isEmpty ? (BrainProviders.pickDefault(p, ids) ?? "") : typed
-                    self.status.stringValue = L("Ключ подошёл. Выбрана модель \(self.model.stringValue), можно сохранять.",
-                                                "The key works. Model \(self.model.stringValue) selected, ready to save.")
+                    self.probe()
                 case .failure(let e):
                     let code = (e as NSError).code
                     if code == 401 || code == 403 {
@@ -264,6 +264,28 @@ final class BrainServerWindow: NSObject, NSWindowDelegate, NSTextFieldDelegate {
                 }
             }
         }
+    }
+
+    /// Checks that the chosen model really answers, not only that the key lists models.
+    private func probe() {
+        let m = model.stringValue.trimmingCharacters(in: .whitespaces)
+        guard !m.isEmpty else { return }
+        loadSerial += 1
+        let mine = loadSerial
+        status.stringValue = L("Ключ подошёл, проверяю модель \(m)…", "The key works, checking model \(m)…")
+        BrainServer.probe(base: endpoint, key: key.stringValue.trimmingCharacters(in: .whitespaces), model: m) { [weak self] failure in
+            onMainInModal {
+                guard let self, mine == self.loadSerial else { return }
+                self.status.stringValue = failure == nil
+                    ? L("Всё работает: модель \(m) отвечает. Можно сохранять.", "All set: model \(m) answers. Ready to save.")
+                    : L("Ключ принят, но нейросеть не отвечает: \(failure!).", "The key is accepted, but the model does not answer: \(failure!).")
+            }
+        }
+    }
+
+    /// Picking another model from the list checks it right away.
+    func comboBoxSelectionDidChange(_ notification: Notification) {
+        onMainInModal { [weak self] in self?.probe() }
     }
 
     @objc private func cancelClicked() { NSApp.stopModal() }
