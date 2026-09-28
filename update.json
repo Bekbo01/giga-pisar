@@ -1,19 +1,19 @@
 {
-  "version": "3.7.2",
+  "version": "3.8",
   "downloads": [
-    "https://gitflic.ru/project/moznoazachem/giga/release/38c311af-1689-4ddf-84ff-b80aff2b323d/3197953b-1fa8-4163-862f-3fc6677e3677/download",
-    "https://github.com/moznoazachem/giga-pisar/releases/download/v3.7.2/GigaPisar-3.7.2.zip"
+    "https://gitflic.ru/project/moznoazachem/giga/release/cdf18776-9911-4489-8a8c-e1d23f39f2e7/58fb4e8d-4eaa-47ab-a065-8e0eeb09b01e/download",
+    "https://github.com/moznoazachem/giga-pisar/releases/download/v3.8/GigaPisar-3.8.zip"
   ],
   "notes": {
     "ru": [
-      "Если Мозг в облаке не отвечает, Писарь пишет причину: нет денег на счету API, сервис недоступен из страны, ключ не принят",
-      "При настройке облака модель проверяется пробным запросом",
-      "Мозг в облаке по ключу: DeepSeek, OpenRouter, OpenAI и другие, пункт «В облаке…» в меню Мозга"
+      "Короткое меню: «Мозг», «Править на лету», «Править выделенный текст» и «Настройки…» (⌘,)",
+      "Окно настроек с вкладками: Основные, Мозг, Правка выделенного, О программе",
+      "Вкладка «Мозг» подсказывает, какой вариант потянет твой мак; облако настраивается прямо там"
     ],
     "en": [
-      "When the cloud Brain fails, Pisar says why: no API balance, service unavailable in your country, key rejected",
-      "Setting up the cloud Brain checks the model with a test request",
-      "The Brain in the cloud with a key: DeepSeek, OpenRouter, OpenAI and more, “In the Cloud…” in the Brain menu"
+      "A short menu: Brain, Edit on the Fly, Edit Selected Text and Settings… (⌘,)",
+      "A Settings window with tabs: General, Brain, Edit Selection, About",
+      "The Brain tab tells which option this Mac can handle; the cloud is set up right there"
     ]
   }
 }
