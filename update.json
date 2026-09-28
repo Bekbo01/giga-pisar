@@ -1,17 +1,17 @@
 {
-  "version": "3.7",
+  "version": "3.7.1",
   "downloads": [
-    "https://gitflic.ru/project/moznoazachem/giga/release/5f29c497-98c6-40b4-a091-1d5f523f38be/89cd1153-1a65-4bc2-8b63-23ddddf000b0/download",
-    "https://github.com/moznoazachem/giga-pisar/releases/download/v3.7/GigaPisar-3.7.zip"
+    "https://gitflic.ru/project/moznoazachem/giga/release/60ec00d2-999f-43bc-9f6f-9409c3284142/0b95266f-8cc1-43f2-8374-c9b046b7fc36/download",
+    "https://github.com/moznoazachem/giga-pisar/releases/download/v3.7.1/GigaPisar-3.7.1.zip"
   ],
   "notes": {
     "ru": [
-      "Мозг в облаке или на своём сервере: выбрал сервис, вставил ключ, модель подберётся сама. Работает и на маках с Intel",
+      "Мозг в облаке по ключу: выбрал сервис, вставил ключ, модель подберётся сама. В меню Мозга пункт «В облаке…». Работает и на маках с Intel",
       "Правка выделенного отдельным пунктом в меню, её можно выключить",
       "Новая галочка в меню Мозга: править каждую диктовку без команды"
     ],
     "en": [
-      "The Brain can think in the cloud or on your own server: pick the service, paste the key, the model is chosen for you. Works on Intel Macs too",
+      "The Brain in the cloud with a key: pick the service, paste the key, the model is chosen for you. Brain menu: “In the Cloud…”. Works on Intel Macs too",
       "Editing a selection by voice has its own menu item and can be turned off",
       "New Brain menu option: edit every take without a command"
     ]
