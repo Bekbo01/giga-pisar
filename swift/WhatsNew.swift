@@ -8,13 +8,13 @@ import AppKit
 
 /// Что изменилось в ЭТОЙ версии. Обновлять при каждом выпуске вместе с номером.
 let WHATS_NEW: [String] = uiIsRussian ? [
-    "Если Мозг в облаке не отвечает, Писарь пишет причину: нет денег на счету API, сервис недоступен из страны, ключ не принят",
-    "При настройке облака Писарь проверяет модель пробным запросом, «всё работает» теперь значит, что нейросеть правда отвечает",
-    "Мозг в облаке по ключу: DeepSeek, OpenRouter, OpenAI и другие. В меню Мозга пункт «В облаке…»",
+    "Меню стало коротким: Мозг, правка выделенного и «Настройки…» (⌘,). Всё остальное в окне настроек с вкладками",
+    "Мозг в облаке настраивается прямо на вкладке «Мозг»: выбрал сервис, вставил ключ, модель проверится сама",
+    "Если облако не отвечает, Писарь пишет причину: нет денег на счету API, сервис недоступен из страны, ключ не принят",
 ] : [
-    "When the cloud Brain fails, Pisar says why: no API balance, the service is unavailable in your country, the key was rejected",
-    "Setting up the cloud Brain now checks the model with a test request, so “all set” means it really answers",
-    "The Brain in the cloud with a key: DeepSeek, OpenRouter, OpenAI and more. Brain menu: “In the Cloud…”",
+    "A short menu: Brain, Edit Selection and Settings… (⌘,). Everything else is in the Settings window with tabs",
+    "The cloud Brain is set up right on the Brain tab: pick the service, paste the key, the model is checked for you",
+    "When the cloud fails, Pisar says why: no API balance, service unavailable in your country, key rejected",
 ]
 
 /// Разбор поля notes из манифеста: словарь по языкам, список или строка.

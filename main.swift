@@ -207,11 +207,12 @@ final class App: NSObject, NSApplicationDelegate {
                let m = BRAIN_MODELS.first(where: { $0.id == id }),
                let item = self.dlMenuItem {
                 item.attributedTitle = self.menuAttrTitle(
-                    L("\(m.name) — качаю \(Brain.shared.downloadPercent)%",
-                      "\(m.name) — Downloading \(Brain.shared.downloadPercent)%"),
+                    L("\(m.name), качаю \(Brain.shared.downloadPercent)%",
+                      "\(m.name), downloading \(Brain.shared.downloadPercent)%"),
                     sub: L("нажми, чтобы отменить", "click to cancel"))
+                self.settings.updateDownload()
             } else {
-                self.buildMenu()
+                self.settingsChanged()
             }
         }
         buildMenu()
@@ -369,165 +370,64 @@ final class App: NSObject, NSApplicationDelegate {
         // даже если у них есть подменю
         menu.autoenablesItems = false
 
-        menu.addItem(mkHeader(L("Гига Писарь", "Giga Pisar"),
+        menu.addItem(mkHeader(L("Гига Писарь \(APP_VERSION)", "Giga Pisar \(APP_VERSION)"),
                               sub: L("зажми \(currentHotkey().title) и говори",
                                      "hold \(currentHotkey().title) and speak")))
         menu.addItem(NSMenuItem.separator())
 
-        // выбор клавиши диктовки
-        let keyItem = mkItem(L("Клавиша диктовки", "Dictation Key"), icon: "keyboard")
-        let keyMenu = NSMenu()
-        for hk in HOTKEYS {
-            let item = mkItem(hk.title, action: #selector(pickHotkey(_:)))
-            item.representedObject = hk.id
-            item.state = (hk.id == currentHotkey().id) ? .on : .off
-            keyMenu.addItem(item)
+        // Only what is used every day; everything else is in Settings.
+        let b = Brain.shared
+        let brainNow: String
+        if let id = b.downloadingId, let m = BRAIN_MODELS.first(where: { $0.id == id }) {
+            brainNow = L("качаю \(m.name), \(b.downloadPercent)%", "downloading \(m.name), \(b.downloadPercent)%")
+        } else if b.usesServer {
+            brainNow = BrainServer.configured ? L("в облаке, \(BrainServer.host)", "in the cloud, \(BrainServer.host)")
+                                              : L("в облаке, не настроен", "in the cloud, not set up")
+        } else if let m = b.chosenModel {
+            brainNow = L("\(m.name) на этом маке", "\(m.name) on this Mac")
+        } else {
+            brainNow = L("выключен", "off")
         }
-        keyItem.submenu = keyMenu
-        menu.addItem(keyItem)
-
-        // плашка с волной: выключена, у места набора или внизу экрана
-        let waveItem = mkItem(L("Волна голоса", "Voice Wave"), icon: "waveform")
-        let waveMenu = NSMenu()
-        let picked = waveEnabled ? WavePanel.place.rawValue : "off"
-        for (id, name) in [("off", L("Выключена", "Off")),
-                           ("cursor", L("У курсора", "Near Cursor")),
-                           ("bottom", L("Внизу экрана", "Bottom of Screen"))] {
-            let it = mkItem(name, action: #selector(pickWave(_:)))
-            it.representedObject = id
-            it.state = picked == id ? .on : .off
-            waveMenu.addItem(it)
-        }
-        waveItem.submenu = waveMenu
-        menu.addItem(waveItem)
-
-        // тишина на время диктовки
-        let hush = mkItem(L("Приглушать звук", "Mute While Dictating"),
-                          sub: L("громкость вернём после диктовки",
-                                 "volume comes back afterwards"),
-                          icon: "speaker.slash", action: #selector(toggleHush))
-        hush.state = Sound.muteWhileDictating ? .on : .off
-        menu.addItem(hush)
-
-        // автозапуск при входе
-        let login = mkItem(L("Запускать при входе", "Open at Login"),
-                           icon: "power", action: #selector(toggleLogin))
-        login.state = (SMAppService.mainApp.status == .enabled) ? .on : .off
-        menu.addItem(login)
-
-        // язык интерфейса: авто / русский / английский
-        let langItem = mkItem(L("Язык меню", "Menu Language"), icon: "globe")
-        let langMenu = NSMenu()
-        let curLang = UserDefaults.standard.string(forKey: "uiLang") ?? "auto"
-        for (code, name) in [("auto", L("Авто (как система)", "Auto (Match System)")),
-                             ("ru", "Русский"), ("en", "English")] {
-            let it = mkItem(name, action: #selector(pickLang(_:)))
-            it.representedObject = code
-            it.state = curLang == code ? .on : .off
-            langMenu.addItem(it)
-        }
-        langItem.submenu = langMenu
-        menu.addItem(langItem)
-
-        // Мозг: локальная нейронка правит текст по команде «Писарь, …»
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(mkHeader(L("Мозг Писаря", "Pisar's Brain"),
-                              sub: L("причёсывает надиктованный текст", "polishes dictated text")))
-        do {
-            menu.addItem(mkItem(L("Что это и как пользоваться…", "What It Is and How to Use It…"),
-                                icon: "questionmark.circle", action: #selector(showBrainHelp)))
-            let off = mkItem(L("Выключен", "Off"), icon: "circle.slash",
-                             action: #selector(pickBrain(_:)))
-            off.representedObject = "off"
-            off.state = Brain.shared.chosenId == nil ? .on : .off
-            menu.addItem(off)
-            if !Brain.shared.engineAvailable {
-                let no = mkItem(L("Нейронки на маке: нужен M-чип", "Models on this Mac: Apple Silicon only"))
-                no.isEnabled = false
-                menu.addItem(no)
+        let brainItem = mkItem(L("Мозг", "Brain"), sub: brainNow, icon: "brain")
+        let brainMenu = NSMenu()
+        brainMenu.autoenablesItems = false
+        let off = mkItem(L("Выключен", "Off"), action: #selector(pickBrain(_:)))
+        off.representedObject = "off"
+        off.state = b.chosenId == nil ? .on : .off
+        brainMenu.addItem(off)
+        for m in BRAIN_MODELS where b.engineAvailable {
+            let it: NSMenuItem
+            if b.downloadingId == m.id {
+                it = mkItem(L("\(m.name), качаю \(b.downloadPercent)%", "\(m.name), downloading \(b.downloadPercent)%"),
+                            sub: L("нажми, чтобы отменить", "click to cancel"), action: #selector(pickBrain(_:)))
+                dlMenuItem = it
+            } else if !b.downloaded(m) {
+                it = mkItem(L("\(m.name), скачать \(m.sizeText)", "\(m.name), download \(m.sizeText)"), action: #selector(pickBrain(_:)))
+            } else {
+                it = mkItem(L("\(m.name) на этом маке", "\(m.name) on this Mac"), action: #selector(pickBrain(_:)))
+                it.state = b.chosenId == m.id ? .on : .off
             }
-            for m in BRAIN_MODELS where Brain.shared.engineAvailable {
-                let it: NSMenuItem
-                if Brain.shared.downloadingId == m.id {
-                    it = mkItem(L("\(m.name) — качаю \(Brain.shared.downloadPercent)%",
-                                  "\(m.name) — Downloading \(Brain.shared.downloadPercent)%"),
-                                sub: L("нажми, чтобы отменить", "click to cancel"),
-                                icon: m.icon, action: #selector(pickBrain(_:)))
-                    dlMenuItem = it
-                } else if !Brain.shared.downloaded(m) {
-                    it = mkItem(L("\(m.name) — скачать \(m.sizeText)",
-                                  "\(m.name) — Download \(m.sizeText)"),
-                                sub: m.details, icon: m.icon,
-                                action: #selector(pickBrain(_:)))
-                } else {
-                    it = mkItem(m.name, sub: Brain.shared.detailsText(m), icon: m.icon,
-                                action: #selector(pickBrain(_:)))
-                    it.state = Brain.shared.chosenId == m.id ? .on : .off
-                }
-                it.representedObject = m.id
-                menu.addItem(it)
-            }
-            // In the cloud with a key (or the user's own server, picked inside): works on any Mac, Intel included.
-            let srv = mkItem(L("В облаке…", "In the Cloud…"),
-                             sub: BrainServer.configured
-                                ? L("\(BrainServer.host) · \(BrainServer.model)", "\(BrainServer.host) · \(BrainServer.model)")
-                                : L("по ключу: OpenRouter, DeepSeek, OpenAI, свой LM Studio", "with a key: OpenRouter, DeepSeek, OpenAI, your LM Studio"),
-                             icon: "network", action: #selector(pickBrain(_:)))
-            srv.representedObject = BrainServer.id
-            srv.state = Brain.shared.usesServer ? .on : .off
-            menu.addItem(srv)
-            if BrainServer.configured {
-                menu.addItem(mkItem(L("Настроить сервер…", "Server Settings…"), icon: "slider.horizontal.3",
-                                    action: #selector(showBrainServer)))
-            }
-            let every = mkItem(L("Править каждую диктовку", "Edit Every Take"),
-                               sub: L("без команды; удобно с быстрым сервером", "no command needed; best with a fast server"),
-                               icon: "text.badge.checkmark", action: #selector(toggleEveryTake))
-            every.state = Brain.shared.everyTake ? .on : .off
-            every.isEnabled = Brain.shared.ready
-            menu.addItem(every)
-            // как звать Писаря: менюшка у курсора или только голосом
-            menu.addItem(NSMenuItem.separator())
-            let menuMode = mkItem(L("Менюшка после вставки", "Menu After Pasting"),
-                                  sub: L("у курсора: 1 причесать · 2 сократить · 3 перевести",
-                                         "at the cursor: 1 tidy up · 2 shorten · 3 translate"),
-                                  icon: "filemenu.and.selection",
-                                  action: #selector(pickChipsMode(_:)))
-            menuMode.representedObject = "menu"
-            menuMode.state = Brain.shared.chipsEnabled ? .on : .off
-            menuMode.isEnabled = Brain.shared.ready
-            menu.addItem(menuMode)
-            let voiceMode = mkItem(L("Только голосом", "Voice Only"),
-                                   sub: L("скажи в конце: «Писарь, исправь / переведи…»",
-                                          "end with: \u{201C}Pisar, fix this / translate\u{2026}\u{201D}"),
-                                   icon: "person.wave.2",
-                                   action: #selector(pickChipsMode(_:)))
-            voiceMode.representedObject = "voice"
-            voiceMode.state = Brain.shared.chipsEnabled ? .off : .on
-            voiceMode.isEnabled = Brain.shared.ready
-            menu.addItem(voiceMode)
+            it.representedObject = m.id
+            brainMenu.addItem(it)
         }
+        let cloud = mkItem(BrainServer.configured ? L("В облаке", "In the Cloud") : L("В облаке…", "In the Cloud…"),
+                           sub: BrainServer.configured ? BrainServer.host : nil, action: #selector(pickBrain(_:)))
+        cloud.representedObject = BrainServer.id
+        cloud.state = b.usesServer ? .on : .off
+        brainMenu.addItem(cloud)
+        brainMenu.addItem(NSMenuItem.separator())
+        brainMenu.addItem(mkItem(L("Настройки Мозга…", "Brain Settings…"), action: #selector(openBrainSettings)))
+        brainItem.submenu = brainMenu
+        menu.addItem(brainItem)
 
-        // Editing a selection by voice: its own section, so it is clear what it is and how to turn it off.
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(mkHeader(L("Правка выделенного", "Edit Selection"),
-                              sub: L("выдели текст, зажми клавишу и скажи, что сделать", "select text, hold the key, say what to do")))
-        let editSel = mkItem(L("Править выделенный текст голосом", "Edit Selected Text by Voice"),
-                             sub: Brain.shared.ready
-                                ? L("«сделай короче», «переведи на английский»; ⌘Z вернёт как было",
-                                    "“make it shorter”, “translate to English”; ⌘Z undoes")
-                                : L("нужен Мозг: он и переписывает текст", "needs the Brain: it rewrites the text"),
+        let editSel = mkItem(L("Править выделенный текст", "Edit Selected Text"),
+                             sub: b.ready ? nil : L("нужен Мозг", "needs the Brain"),
                              icon: "character.cursor.ibeam", action: #selector(toggleEditSelection))
-        editSel.state = Brain.shared.onSelection ? .on : .off
-        editSel.isEnabled = Brain.shared.ready
+        editSel.state = b.onSelection ? .on : .off
+        editSel.isEnabled = b.ready
         menu.addItem(editSel)
         menu.addItem(NSMenuItem.separator())
 
-        menu.addItem(mkItem(L("Доступы…", "Permissions…"), icon: "lock.shield",
-                            action: #selector(showOnboarding)))
-        menu.addItem(NSMenuItem.separator())
-
-        // версия и обновления — одним компактным пунктом
         if SelfUpdate.inProgress, let upd = SelfUpdate.version {
             let item = mkItem(L("Качаю версию \(upd)…", "Downloading version \(upd)…"),
                               sub: L("нажми, чтобы посмотреть ход дела", "click to see progress"),
@@ -535,19 +435,12 @@ final class App: NSObject, NSApplicationDelegate {
             menu.addItem(item)
             updMenuItem = item
         } else if let upd = updateAvailable {
-            menu.addItem(mkItem(L("Доступна версия \(upd) — обновить",
-                                  "Version \(upd) Available — Update"),
+            menu.addItem(mkItem(L("Доступна версия \(upd), обновить", "Version \(upd) Available, Update"),
                                 icon: "arrow.down.circle", action: #selector(startSelfUpdate)))
         }
-        menu.addItem(mkItem(L("Проверить обновления…", "Check for Updates…"),
-                            sub: L("сейчас стоит \(APP_VERSION)", "installed: \(APP_VERSION)"),
-                            icon: "arrow.triangle.2.circlepath",
-                            action: #selector(checkUpdatesManual)))
-        menu.addItem(mkItem(L("Рассказать другу…", "Tell a Friend…"),
-                            sub: L("ссылка на сайт: Сообщения, Почта, Telegram, AirDrop",
-                                   "site link via Messages, Mail, Telegram, AirDrop"),
-                            icon: "square.and.arrow.up", action: #selector(shareApp)))
-
+        let prefs = mkItem(L("Настройки…", "Settings…"), icon: "gearshape", action: #selector(openSettings))
+        prefs.keyEquivalent = ","
+        menu.addItem(prefs)
         menu.addItem(NSMenuItem.separator())
         let quit = mkItem(L("Выйти", "Quit"))
         quit.action = #selector(NSApplication.terminate(_:))
@@ -559,9 +452,24 @@ final class App: NSObject, NSApplicationDelegate {
 
     @objc func pickHotkey(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String else { return }
-        UserDefaults.standard.set(id, forKey: "hotkey")
-        buildMenu() // обновить галочки и заголовок
+        selectHotkey(id)
     }
+
+    func selectHotkey(_ id: String) {
+        UserDefaults.standard.set(id, forKey: "hotkey")
+        settingsChanged()
+    }
+
+    /// Menu and Settings show the same state: after any change both are redrawn.
+    func settingsChanged() {
+        buildMenu()
+        settings.refresh()
+    }
+
+    lazy var settings = SettingsWindow(app: self)
+
+    @objc func openSettings() { settings.show() }
+    @objc func openBrainSettings() { settings.show(tab: .brain) }
 
     @objc func showOnboarding() { onboarding.show() }
 
@@ -600,11 +508,12 @@ final class App: NSObject, NSApplicationDelegate {
 
     @objc func toggleHush() {
         Sound.muteWhileDictating.toggle()
-        buildMenu()
+        settingsChanged()
     }
 
-    @objc func pickWave(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? String else { return }
+    var waveChoice: String { waveEnabled ? WavePanel.place.rawValue : "off" }
+
+    func selectWave(_ id: String) {
         UserDefaults.standard.set(id != "off", forKey: "wavePanel")
         if let p = WavePanel.Place(rawValue: id) { WavePanel.place = p }
         if !waveEnabled {
@@ -613,7 +522,7 @@ final class App: NSObject, NSApplicationDelegate {
             // выбрали прямо во время диктовки — плашка переезжает сразу
             wave.show(near: typingAnchor())
         }
-        buildMenu()
+        settingsChanged()
     }
 
     /// Само: скачает выпуск, проверит подпись, подменит себя и перезапустится.
@@ -787,7 +696,7 @@ final class App: NSObject, NSApplicationDelegate {
                                   "Add it manually: System Settings → General → Login Items. (\(error.localizedDescription))")
             a.runModal()
         }
-        buildMenu()
+        settingsChanged()
     }
 
     // MARK: сервер
@@ -960,15 +869,14 @@ final class App: NSObject, NSApplicationDelegate {
     // клавиатуры был избыточен; проверено опытом: flagsChanged приходит
     // без разрешений, keyDown — нет.
 
-    @objc func pickLang(_ sender: NSMenuItem) {
-        guard let code = sender.representedObject as? String else { return }
+    func selectLang(_ code: String) {
         UserDefaults.standard.set(code, forKey: "uiLang")
-        buildMenu()
+        settingsChanged()
     }
 
-    @objc func pickChipsMode(_ sender: NSMenuItem) {
-        Brain.shared.chipsEnabled = (sender.representedObject as? String) == "menu"
-        buildMenu()
+    func setChipsMenu(_ on: Bool) {
+        Brain.shared.chipsEnabled = on
+        settingsChanged()
     }
 
     /// Инструкция к Мозгу: по пункту меню и один раз сама, когда модель
@@ -980,14 +888,14 @@ final class App: NSObject, NSApplicationDelegate {
                               "A neural net that tidies, shortens and translates text on your command. GigaChat and Qwen run on this Mac, nothing goes online. You can also plug in your own server or a cloud model with a key.")
         a.accessoryView = bulletsView(header: L("Как пользоваться", "How to use it"), lines: uiIsRussian ? [
             "Голосом: в конце диктовки скажи «Писарь, исправь», «Писарь, сократи» или «Писарь, переведи на английский»",
-            "Менюшкой: после вставки у курсора появляются 1 причесать · 2 сократить · 3 перевести, жми цифру. Включается в этом же меню",
+            "Менюшкой: после вставки у курсора появляются 1 причесать · 2 сократить · 3 перевести, жми цифру. Включается в настройках, вкладка «Мозг»",
             "Над готовым текстом: выдели его, зажми \(currentHotkey().title) и скажи, что сделать («сделай короче», «переведи»). Результат встанет вместо выделенного, ⌘Z вернёт как было",
             "GigaChat: родной русский, 6,5 ГБ, маки от 16 ГБ. Qwen: лёгкая, 2,5 ГБ, русский неродной, но аккуратная",
             "Первый ответ ждёт секунд десять: нейронка поднимается с диска, дальше быстро",
             "В облаке: DeepSeek, OpenRouter, OpenAI или свой LM Studio, по ключу. Быстрее и умнее, работает и на маках с Intel, но текст уходит на сервер (звук нет)",
         ] : [
             "By voice: end your dictation with “Pisar, fix this”, “Pisar, make it shorter” or “Pisar, translate to English”",
-            "By menu: after pasting, 1 tidy up · 2 shorten · 3 translate appear at the cursor, press the digit. Turned on in this same menu",
+            "By menu: after pasting, 1 tidy up · 2 shorten · 3 translate appear at the cursor, press the digit. Turned on in Settings, Brain tab",
             "On existing text: select it, hold \(currentHotkey().title) and say what to do (“make it shorter”, “translate”). The result replaces the selection, ⌘Z brings it back",
             "GigaChat: native Russian, 6.5 GB, Macs with 16 GB+. Qwen: light, 2.5 GB, non-native Russian but tidy",
             "The first reply takes about ten seconds while the model loads from disk, then it's fast",
@@ -998,39 +906,35 @@ final class App: NSObject, NSApplicationDelegate {
 
     @objc func toggleEditSelection() {
         Brain.shared.onSelection.toggle()
-        buildMenu()
+        settingsChanged()
     }
 
     @objc func toggleEveryTake() {
         Brain.shared.everyTake.toggle()
-        buildMenu()
+        settingsChanged()
     }
 
-    /// Service, key and model of the Brain in the cloud. People usually have a key and a
-    /// service name, not an address: the service is picked (or guessed from the key), the
-    /// address is filled in and the model list loads by itself. Saving switches the Brain to it.
-    @objc func showBrainServer() {
-        guard BrainServerWindow().run() else { return }
-        Brain.shared.chosenId = BrainServer.id
-        Brain.shared.stopServer()
-        buildMenu()
-        Toast.shared.show(L("Мозг думает на \(BrainServer.host). Скажи в конце: «Писарь, исправь»",
-                            "The Brain thinks on \(BrainServer.host). End with “Pisar, fix this”"))
-    }
+    /// The cloud Brain is set up right on the Brain tab of Settings.
+    @objc func showBrainServer() { settings.show(tab: .brain) }
 
     @objc func pickBrain(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String else { return }
+        selectBrain(id)
+    }
+
+    /// Off, a local model (downloading it first, with a memory warning) or the cloud.
+    func selectBrain(_ id: String) {
         if id == "off" {
             Brain.shared.chosenId = nil
             Brain.shared.stopServer()
-            buildMenu()
+            settingsChanged()
             return
         }
         if id == BrainServer.id {
-            guard BrainServer.configured else { showBrainServer(); return }
             Brain.shared.chosenId = id
             Brain.shared.stopServer()
-            buildMenu()
+            settingsChanged()
+            if !BrainServer.configured { settings.show(tab: .brain) }   // service and key are filled in there
             return
         }
         guard let m = BRAIN_MODELS.first(where: { $0.id == id }) else { return }
@@ -1054,7 +958,7 @@ final class App: NSObject, NSApplicationDelegate {
             return
         }
         Brain.shared.chosenId = id
-        buildMenu()
+        settingsChanged()
     }
 
     func startKeyMonitors() {
@@ -1291,8 +1195,8 @@ final class App: NSObject, NSApplicationDelegate {
                         self.setState(.idle)
                         self.paste(text)
                         if Brain.shared.chosenId == nil {
-                            Toast.shared.show(L("Похоже на команду Писарю — включи мозг в меню Гиги",
-                                                "Sounded like a Pisar command — pick a brain in the Giga menu"))
+                            Toast.shared.show(L("Похоже на команду Писарю. Включи Мозг: меню Гиги, пункт «Мозг»",
+                                                "Sounded like a Pisar command. Turn on the Brain: Giga menu, Brain"))
                         }
                         return
                     }
