@@ -467,8 +467,8 @@ final class App: NSObject, NSApplicationDelegate {
                 it.representedObject = m.id
                 menu.addItem(it)
             }
-            // Own server or cloud with a key: works on any Mac, Intel included.
-            let srv = mkItem(BrainServer.configured ? L("Свой сервер", "Own Server") : L("Свой сервер или облако…", "Own Server or Cloud…"),
+            // In the cloud with a key (or the user's own server, picked inside): works on any Mac, Intel included.
+            let srv = mkItem(L("В облаке…", "In the Cloud…"),
                              sub: BrainServer.configured
                                 ? L("\(BrainServer.host) · \(BrainServer.model)", "\(BrainServer.host) · \(BrainServer.model)")
                                 : L("по ключу: OpenRouter, DeepSeek, OpenAI, свой LM Studio", "with a key: OpenRouter, DeepSeek, OpenAI, your LM Studio"),
@@ -984,14 +984,14 @@ final class App: NSObject, NSApplicationDelegate {
             "Над готовым текстом: выдели его, зажми \(currentHotkey().title) и скажи, что сделать («сделай короче», «переведи»). Результат встанет вместо выделенного, ⌘Z вернёт как было",
             "GigaChat: родной русский, 6,5 ГБ, маки от 16 ГБ. Qwen: лёгкая, 2,5 ГБ, русский неродной, но аккуратная",
             "Первый ответ ждёт секунд десять: нейронка поднимается с диска, дальше быстро",
-            "Свой сервер или облако: OpenRouter, DeepSeek, OpenAI, свой LM Studio. Быстрее и умнее, работает и на маках с Intel, но текст уходит на сервер (звук нет)",
+            "В облаке: DeepSeek, OpenRouter, OpenAI или свой LM Studio, по ключу. Быстрее и умнее, работает и на маках с Intel, но текст уходит на сервер (звук нет)",
         ] : [
             "By voice: end your dictation with “Pisar, fix this”, “Pisar, make it shorter” or “Pisar, translate to English”",
             "By menu: after pasting, 1 tidy up · 2 shorten · 3 translate appear at the cursor, press the digit. Turned on in this same menu",
             "On existing text: select it, hold \(currentHotkey().title) and say what to do (“make it shorter”, “translate”). The result replaces the selection, ⌘Z brings it back",
             "GigaChat: native Russian, 6.5 GB, Macs with 16 GB+. Qwen: light, 2.5 GB, non-native Russian but tidy",
             "The first reply takes about ten seconds while the model loads from disk, then it's fast",
-            "Own server or cloud: OpenRouter, DeepSeek, OpenAI, your LM Studio. Faster and smarter, works on Intel Macs too, but the text goes to the server (audio does not)",
+            "In the cloud: DeepSeek, OpenRouter, OpenAI or your LM Studio, with a key. Faster and smarter, works on Intel Macs too, but the text goes to the server (audio does not)",
         ], width: 360)
         a.runModal()
     }
