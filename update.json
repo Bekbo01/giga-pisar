@@ -1,19 +1,19 @@
 {
-  "version": "3.7.1",
+  "version": "3.7.2",
   "downloads": [
-    "https://gitflic.ru/project/moznoazachem/giga/release/60ec00d2-999f-43bc-9f6f-9409c3284142/0b95266f-8cc1-43f2-8374-c9b046b7fc36/download",
-    "https://github.com/moznoazachem/giga-pisar/releases/download/v3.7.1/GigaPisar-3.7.1.zip"
+    "https://gitflic.ru/project/moznoazachem/giga/release/38c311af-1689-4ddf-84ff-b80aff2b323d/3197953b-1fa8-4163-862f-3fc6677e3677/download",
+    "https://github.com/moznoazachem/giga-pisar/releases/download/v3.7.2/GigaPisar-3.7.2.zip"
   ],
   "notes": {
     "ru": [
-      "Мозг в облаке по ключу: выбрал сервис, вставил ключ, модель подберётся сама. В меню Мозга пункт «В облаке…». Работает и на маках с Intel",
-      "Правка выделенного отдельным пунктом в меню, её можно выключить",
-      "Новая галочка в меню Мозга: править каждую диктовку без команды"
+      "Если Мозг в облаке не отвечает, Писарь пишет причину: нет денег на счету API, сервис недоступен из страны, ключ не принят",
+      "При настройке облака модель проверяется пробным запросом",
+      "Мозг в облаке по ключу: DeepSeek, OpenRouter, OpenAI и другие, пункт «В облаке…» в меню Мозга"
     ],
     "en": [
-      "The Brain in the cloud with a key: pick the service, paste the key, the model is chosen for you. Brain menu: “In the Cloud…”. Works on Intel Macs too",
-      "Editing a selection by voice has its own menu item and can be turned off",
-      "New Brain menu option: edit every take without a command"
+      "When the cloud Brain fails, Pisar says why: no API balance, service unavailable in your country, key rejected",
+      "Setting up the cloud Brain checks the model with a test request",
+      "The Brain in the cloud with a key: DeepSeek, OpenRouter, OpenAI and more, “In the Cloud…” in the Brain menu"
     ]
   }
 }
