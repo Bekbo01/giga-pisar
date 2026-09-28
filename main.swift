@@ -54,6 +54,12 @@ var HOTKEYS: [Hotkey] { [
     Hotkey(id: "fn", title: "Fn (🌐)", keycode: 63, flag: .function),
 ] }
 
+/// The key name inside a sentence: "right ⌘", not "Right ⌘".
+func hotkeyInText() -> String {
+    let t = currentHotkey().title
+    return t.prefix(1).lowercased() + t.dropFirst()
+}
+
 func currentHotkey() -> Hotkey {
     let id = UserDefaults.standard.string(forKey: "hotkey") ?? "rcmd"
     return HOTKEYS.first { $0.id == id } ?? HOTKEYS[0]
@@ -206,10 +212,8 @@ final class App: NSObject, NSApplicationDelegate {
             if let id = Brain.shared.downloadingId,
                let m = BRAIN_MODELS.first(where: { $0.id == id }),
                let item = self.dlMenuItem {
-                item.attributedTitle = self.menuAttrTitle(
-                    L("\(m.name), качаю \(Brain.shared.downloadPercent)%",
-                      "\(m.name), downloading \(Brain.shared.downloadPercent)%"),
-                    sub: L("нажми, чтобы отменить", "click to cancel"))
+                item.attributedTitle = self.menuAttrTitle(L("Мозг", "Brain"),
+                    sub: L("качаю \(m.name), \(Brain.shared.downloadPercent)%", "downloading \(m.name), \(Brain.shared.downloadPercent)%"))
                 self.settings.updateDownload()
             } else {
                 self.settingsChanged()
@@ -371,57 +375,39 @@ final class App: NSObject, NSApplicationDelegate {
         menu.autoenablesItems = false
 
         menu.addItem(mkHeader(L("Гига Писарь \(APP_VERSION)", "Giga Pisar \(APP_VERSION)"),
-                              sub: L("зажми \(currentHotkey().title) и говори",
-                                     "hold \(currentHotkey().title) and speak")))
+                              sub: L("зажми \(hotkeyInText()) и говори",
+                                     "hold \(hotkeyInText()) and speak")))
         menu.addItem(NSMenuItem.separator())
 
-        // Only what is used every day; everything else is in Settings.
+        // Only quick switches, each with one grey line saying what it is; everything else is in Settings.
         let b = Brain.shared
-        let brainNow: String
+        let brainSub: String
         if let id = b.downloadingId, let m = BRAIN_MODELS.first(where: { $0.id == id }) {
-            brainNow = L("качаю \(m.name), \(b.downloadPercent)%", "downloading \(m.name), \(b.downloadPercent)%")
+            brainSub = L("качаю \(m.name), \(b.downloadPercent)%", "downloading \(m.name), \(b.downloadPercent)%")
+        } else if b.chosenId != nil, !b.ready {
+            brainSub = L("не настроен, нажми, чтобы настроить", "not set up, click to set it up")
         } else if b.usesServer {
-            brainNow = BrainServer.configured ? L("в облаке, \(BrainServer.host)", "in the cloud, \(BrainServer.host)")
-                                              : L("в облаке, не настроен", "in the cloud, not set up")
+            brainSub = L("правит по команде «Писарь, …» · в облаке", "edits on “Pisar, …” · in the cloud")
         } else if let m = b.chosenModel {
-            brainNow = L("\(m.name) на этом маке", "\(m.name) on this Mac")
+            brainSub = L("правит по команде «Писарь, …» · \(m.name)", "edits on “Pisar, …” · \(m.name)")
         } else {
-            brainNow = L("выключен", "off")
+            brainSub = L("нейросеть правит текст по команде «Писарь, …»", "an AI model edits text on “Pisar, …”")
         }
-        let brainItem = mkItem(L("Мозг", "Brain"), sub: brainNow, icon: "brain")
-        let brainMenu = NSMenu()
-        brainMenu.autoenablesItems = false
-        let off = mkItem(L("Выключен", "Off"), action: #selector(pickBrain(_:)))
-        off.representedObject = "off"
-        off.state = b.chosenId == nil ? .on : .off
-        brainMenu.addItem(off)
-        for m in BRAIN_MODELS where b.engineAvailable {
-            let it: NSMenuItem
-            if b.downloadingId == m.id {
-                it = mkItem(L("\(m.name), качаю \(b.downloadPercent)%", "\(m.name), downloading \(b.downloadPercent)%"),
-                            sub: L("нажми, чтобы отменить", "click to cancel"), action: #selector(pickBrain(_:)))
-                dlMenuItem = it
-            } else if !b.downloaded(m) {
-                it = mkItem(L("\(m.name), скачать \(m.sizeText)", "\(m.name), download \(m.sizeText)"), action: #selector(pickBrain(_:)))
-            } else {
-                it = mkItem(L("\(m.name) на этом маке", "\(m.name) on this Mac"), action: #selector(pickBrain(_:)))
-                it.state = b.chosenId == m.id ? .on : .off
-            }
-            it.representedObject = m.id
-            brainMenu.addItem(it)
-        }
-        let cloud = mkItem(BrainServer.configured ? L("В облаке", "In the Cloud") : L("В облаке…", "In the Cloud…"),
-                           sub: BrainServer.configured ? BrainServer.host : nil, action: #selector(pickBrain(_:)))
-        cloud.representedObject = BrainServer.id
-        cloud.state = b.usesServer ? .on : .off
-        brainMenu.addItem(cloud)
-        brainMenu.addItem(NSMenuItem.separator())
-        brainMenu.addItem(mkItem(L("Настройки Мозга…", "Brain Settings…"), action: #selector(openBrainSettings)))
-        brainItem.submenu = brainMenu
+        let brainItem = mkItem(L("Мозг", "Brain"), sub: brainSub, icon: "brain", action: #selector(toggleBrain))
+        brainItem.state = b.chosenId != nil ? .on : .off
+        if b.downloadingId != nil { dlMenuItem = brainItem }
         menu.addItem(brainItem)
 
+        let fly = mkItem(L("Править на лету", "Edit on the Fly"),
+                         sub: L("причёсывает каждую диктовку сама", "tidies every take by itself"),
+                         icon: "text.badge.checkmark", action: #selector(toggleEveryTake))
+        fly.state = b.everyTake ? .on : .off
+        fly.isEnabled = b.ready
+        menu.addItem(fly)
+
         let editSel = mkItem(L("Править выделенный текст", "Edit Selected Text"),
-                             sub: b.ready ? nil : L("нужен Мозг", "needs the Brain"),
+                             sub: L("выдели, зажми \(hotkeyInText()) и скажи, что сделать",
+                                    "select, hold \(hotkeyInText()), say what to do"),
                              icon: "character.cursor.ibeam", action: #selector(toggleEditSelection))
         editSel.state = b.onSelection ? .on : .off
         editSel.isEnabled = b.ready
@@ -438,7 +424,8 @@ final class App: NSObject, NSApplicationDelegate {
             menu.addItem(mkItem(L("Доступна версия \(upd), обновить", "Version \(upd) Available, Update"),
                                 icon: "arrow.down.circle", action: #selector(startSelfUpdate)))
         }
-        let prefs = mkItem(L("Настройки…", "Settings…"), icon: "gearshape", action: #selector(openSettings))
+        let prefs = mkItem(L("Настройки…", "Settings…"), sub: L("клавиша, звук, облако и всё остальное", "key, sound, cloud and everything else"),
+                           icon: "gearshape", action: #selector(openSettings))
         prefs.keyEquivalent = ","
         menu.addItem(prefs)
         menu.addItem(NSMenuItem.separator())
@@ -470,6 +457,28 @@ final class App: NSObject, NSApplicationDelegate {
 
     @objc func openSettings() { settings.show() }
     @objc func openBrainSettings() { settings.show(tab: .brain) }
+
+    /// The menu switch: off, or back to what was chosen last. Never set up: open the Brain tab.
+    @objc func toggleBrain() {
+        let b = Brain.shared
+        if b.chosenId != nil, !b.ready, b.downloadingId == nil {
+            settings.show(tab: .brain)   // chosen but not set up: the grey line promised to open settings
+            return
+        }
+        if let id = b.chosenId {
+            UserDefaults.standard.set(id, forKey: "brainLast")
+            selectBrain("off")
+            return
+        }
+        let last = UserDefaults.standard.string(forKey: "brainLast")
+        let usable: (String) -> Bool = { id in
+            id == BrainServer.id ? BrainServer.configured : (BRAIN_MODELS.first { $0.id == id }.map(b.downloaded) ?? false) && b.engineAvailable
+        }
+        if let last, usable(last) { selectBrain(last); return }
+        if let m = BRAIN_MODELS.first(where: { b.engineAvailable && b.downloaded($0) }) { selectBrain(m.id); return }
+        if BrainServer.configured { selectBrain(BrainServer.id); return }
+        settings.show(tab: .brain)
+    }
 
     @objc func showOnboarding() { onboarding.show() }
 
@@ -889,6 +898,7 @@ final class App: NSObject, NSApplicationDelegate {
         a.accessoryView = bulletsView(header: L("Как пользоваться", "How to use it"), lines: uiIsRussian ? [
             "Голосом: в конце диктовки скажи «Писарь, исправь», «Писарь, сократи» или «Писарь, переведи на английский»",
             "Менюшкой: после вставки у курсора появляются 1 причесать · 2 сократить · 3 перевести, жми цифру. Включается в настройках, вкладка «Мозг»",
+            "На лету: включи «Править на лету» в меню, и нейросеть будет причёсывать каждую диктовку сама",
             "Над готовым текстом: выдели его, зажми \(currentHotkey().title) и скажи, что сделать («сделай короче», «переведи»). Результат встанет вместо выделенного, ⌘Z вернёт как было",
             "GigaChat: родной русский, 6,5 ГБ, маки от 16 ГБ. Qwen: лёгкая, 2,5 ГБ, русский неродной, но аккуратная",
             "Первый ответ ждёт секунд десять: нейронка поднимается с диска, дальше быстро",
@@ -896,6 +906,7 @@ final class App: NSObject, NSApplicationDelegate {
         ] : [
             "By voice: end your dictation with “Pisar, fix this”, “Pisar, make it shorter” or “Pisar, translate to English”",
             "By menu: after pasting, 1 tidy up · 2 shorten · 3 translate appear at the cursor, press the digit. Turned on in Settings, Brain tab",
+            "On the fly: turn on “Edit on the Fly” in the menu and the model tidies every take by itself",
             "On existing text: select it, hold \(currentHotkey().title) and say what to do (“make it shorter”, “translate”). The result replaces the selection, ⌘Z brings it back",
             "GigaChat: native Russian, 6.5 GB, Macs with 16 GB+. Qwen: light, 2.5 GB, non-native Russian but tidy",
             "The first reply takes about ten seconds while the model loads from disk, then it's fast",

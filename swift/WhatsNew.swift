@@ -8,12 +8,12 @@ import AppKit
 
 /// Что изменилось в ЭТОЙ версии. Обновлять при каждом выпуске вместе с номером.
 let WHATS_NEW: [String] = uiIsRussian ? [
-    "Меню стало коротким: Мозг, правка выделенного и «Настройки…» (⌘,). Всё остальное в окне настроек с вкладками",
-    "Мозг в облаке настраивается прямо на вкладке «Мозг»: выбрал сервис, вставил ключ, модель проверится сама",
+    "Меню стало коротким: Мозг, «Править на лету», «Править выделенный текст» и «Настройки…» (⌘,). Всё остальное в окне настроек с вкладками",
+    "На вкладке «Мозг» описано, что за варианты и потянет ли их твой мак; облако настраивается прямо там",
     "Если облако не отвечает, Писарь пишет причину: нет денег на счету API, сервис недоступен из страны, ключ не принят",
 ] : [
-    "A short menu: Brain, Edit Selection and Settings… (⌘,). Everything else is in the Settings window with tabs",
-    "The cloud Brain is set up right on the Brain tab: pick the service, paste the key, the model is checked for you",
+    "A short menu: Brain, Edit on the Fly, Edit Selected Text and Settings… (⌘,). Everything else is in the Settings window with tabs",
+    "On the Brain tab: what each option is and whether this Mac can handle it; the cloud is set up right there",
     "When the cloud fails, Pisar says why: no API balance, service unavailable in your country, key rejected",
 ]
 

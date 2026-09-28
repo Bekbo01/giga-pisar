@@ -35,6 +35,12 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     /// Rebuilds the pages from the current state, keeping the open tab.
     /// keepBrain: the cloud panel saved itself; its status line must stay.
     func refresh(keepBrain: Bool = false) {
+        // Later, not now: refresh is usually triggered from a control's own action, and rebuilding
+        // the page would free that control's target while its handler is still running.
+        DispatchQueue.main.async { [weak self] in self?.rebuild(keepBrain: keepBrain) }
+    }
+
+    private func rebuild(keepBrain: Bool) {
         guard let tabs, isVisible else { return }
         let current = tabs.selectedTabViewItemIndex
         fillTabs(keepBrain: keepBrain)
@@ -113,8 +119,9 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
                          selected: app.waveChoice) { app.selectWave($0) }
         let lang = popup([("auto", L("Как в системе", "Same as system")), ("ru", "Русский"), ("en", "English")],
                          selected: UserDefaults.standard.string(forKey: "uiLang") ?? "auto") { app.selectLang($0) }
-        let hush = checkbox(L("Приглушать звук во время диктовки", "Mute sound while dictating"),
+        let hush = checkbox(L("Приглушать музыку и звук во время диктовки", "Mute music and sound while dictating"),
                             on: Sound.muteWhileDictating) { _ in app.toggleHush() }
+        let hushNote = small(L("Громкость вернётся сама, как только отпустишь клавишу.", "The volume comes back as soon as you release the key."))
         let login = checkbox(L("Запускать при входе в систему", "Open at login"),
                              on: SMAppService.mainApp.status == .enabled) { _ in app.toggleLogin() }
         let access = button(L("Доступы…", "Permissions…")) { app.showOnboarding() }
@@ -123,6 +130,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             (L("Волна голоса:", "Voice wave:"), wave),
             (L("Язык:", "Language:"), lang),
             ("", hush),
+            ("", hushNote),
             ("", login),
             ("", access),
         ])
@@ -158,12 +166,9 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             row.spacing = 10
             rows.append(("", row))
             DispatchQueue.main.async { self.updateDownload() }
-        } else if let m = b.chosenModel {
-            rows.append(("", small(b.detailsText(m))))
-        } else if !b.engineAvailable {
-            rows.append(("", small(L("Нейросети на этом маке работают только на M-чипах. В облаке работает на любом.",
-                                     "On-device models need Apple Silicon. The cloud works on any Mac."))))
         }
+        rows.append(("", note(BrainAdvice.describe(current), width: 330)))
+        rows.append(("", small(BrainAdvice.thisMac)))
 
         var parts: [NSView] = [form(rows)]
         if b.usesServer {
@@ -177,15 +182,17 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             cloud = nil
         }
 
-        let every = checkbox(L("Править каждую диктовку, без команды", "Edit every take, without a command"),
+        let every = checkbox(L("Править на лету", "Edit on the fly"),
                              on: b.everyTake, enabled: b.ready) { _ in app.toggleEveryTake() }
+        let everyNote = note(L("Нейросеть причёсывает каждую диктовку сама, без команды «Писарь, …»",
+                               "The model tidies every take by itself, no “Pisar, …” needed"), width: 330)
         let menuMode = radio(L("Менюшка у курсора: причесать, сократить, перевести",
                                "A menu at the cursor: tidy, shorten, translate"),
                              on: b.chipsEnabled, enabled: b.ready) { app.setChipsMenu(true) }
         let voiceMode = radio(L("Только голосом: «…Писарь, исправь»", "Voice only: “…Pisar, fix this”"),
                               on: !b.chipsEnabled, enabled: b.ready) { app.setChipsMenu(false) }
         let help = button(L("Как пользоваться…", "How to use it…")) { app.showBrainHelp() }
-        parts.append(form([("", every), (L("Команды:", "Commands:"), menuMode), ("", voiceMode), ("", help)]))
+        parts.append(form([("", every), ("", everyNote), (L("Команды:", "Commands:"), menuMode), ("", voiceMode), ("", help)]))
 
         return page(L("Нейросеть правит надиктованное по команде. Скажи в конце: «Писарь, исправь», «Писарь, сократи» или «Писарь, переведи на английский». Без обращения текст вставляется сразу.",
                       "An AI model edits the dictation on command. End with “Pisar, fix this”, “Pisar, make it shorter” or “Pisar, translate to English” (in Russian). Without the address the text goes in at once."),
@@ -367,6 +374,16 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         return t
     }
 
+    private func note(_ s: String, width w: CGFloat) -> NSTextField {
+        let t = NSTextField(wrappingLabelWithString: s)
+        t.font = .systemFont(ofSize: 11)
+        t.textColor = .secondaryLabelColor
+        t.preferredMaxLayoutWidth = w
+        t.translatesAutoresizingMaskIntoConstraints = false
+        t.widthAnchor.constraint(equalToConstant: w).isActive = true
+        return t
+    }
+
     private func spacer(_ h: CGFloat) -> NSView {
         let v = NSView()
         v.translatesAutoresizingMaskIntoConstraints = false
@@ -395,6 +412,7 @@ final class CloudBrainPanel: NSObject, NSTextFieldDelegate, NSComboBoxDelegate {
     private let model = NSComboBox()
     private let reload = NSButton()
     private let status = NSTextField(wrappingLabelWithString: "")
+    private let about = NSTextField(wrappingLabelWithString: "")
     private var grid: NSGridView!
     private var pause: Timer?
     private var serial = 0
@@ -458,8 +476,11 @@ final class CloudBrainPanel: NSObject, NSTextFieldDelegate, NSComboBoxDelegate {
             t.alignment = .right
             return t
         }
+        about.font = .systemFont(ofSize: 11)
+        about.textColor = .secondaryLabelColor
         grid = NSGridView(views: [
             [label(L("Сервис:", "Service:")), service],
+            [NSGridCell.emptyContentView, about],
             [label(L("Ключ API:", "API key:")), key],
             [NSGridCell.emptyContentView, keysLink],
             [label(L("Адрес:", "Address:")), url],
@@ -471,8 +492,9 @@ final class CloudBrainPanel: NSObject, NSTextFieldDelegate, NSComboBoxDelegate {
         grid.rowAlignment = .firstBaseline
         grid.rowSpacing = 8
         grid.columnSpacing = 10
-        grid.row(at: 2).topPadding = -4
-        for v in [service, key, url, status] as [NSView] {
+        grid.row(at: 1).topPadding = -2
+        grid.row(at: 3).topPadding = -4
+        for v in [service, about, key, url, status] as [NSView] {
             v.translatesAutoresizingMaskIntoConstraints = false
             v.widthAnchor.constraint(equalToConstant: 320).isActive = true
         }
@@ -491,7 +513,8 @@ final class CloudBrainPanel: NSObject, NSTextFieldDelegate, NSComboBoxDelegate {
 
     private func updateService() {
         let p = provider
-        grid.row(at: 3).isHidden = !p.isCustom
+        grid.row(at: 4).isHidden = !p.isCustom
+        about.stringValue = BrainAdvice.service(p)
         keysLink.title = p.isCustom ? L("Для своего сервера ключ обычно не нужен", "Your own server usually needs no key")
                                     : L("Где взять ключ \(p.name) →", "Get a \(p.name) key →")
         keysLink.isEnabled = !p.isCustom
@@ -613,6 +636,69 @@ final class CloudBrainPanel: NSObject, NSTextFieldDelegate, NSComboBoxDelegate {
                     : L("Ключ принят, но нейросеть не отвечает: \(failure!).", "The key is accepted, but the model does not answer: \(failure!).")
                 self.saved()
             }
+        }
+    }
+}
+
+// MARK: - what each Brain choice is, judged against this Mac
+
+enum BrainAdvice {
+    static var ramGB: Int { Int(ProcessInfo.processInfo.physicalMemory / (1 << 30)) }
+
+    static var chip: String {
+        var size = 0
+        sysctlbyname("machdep.cpu.brand_string", nil, &size, nil, 0)
+        var buf = [CChar](repeating: 0, count: max(size, 1))
+        sysctlbyname("machdep.cpu.brand_string", &buf, &size, nil, 0)
+        let s = String(cString: buf).trimmingCharacters(in: .whitespaces)
+        return s.isEmpty ? L("неизвестный чип", "unknown chip") : s
+    }
+
+    static var thisMac: String {
+        L("Твой мак: \(chip), \(ramGB) ГБ памяти.", "This Mac: \(chip), \(ramGB) GB of memory.")
+    }
+
+    static func describe(_ choice: String) -> String {
+        let intel = !Brain.shared.engineAvailable
+        switch choice {
+        case "gigachat":
+            let base = L("Родной русский, лучшее качество правки, работает без интернета. Весит 6,5 ГБ, нужно от 16 ГБ памяти.",
+                         "Native Russian, the best edits, works offline. 6.5 GB, needs 16 GB of memory or more.")
+            if intel { return base + " " + L("На маке с Intel не работает.", "Does not run on Intel Macs.") }
+            return base + " " + (ramGB < 16
+                ? L("На твоём маке \(ramGB) ГБ: будет тормозить и теснить другие программы. Лучше Qwen или облако.",
+                    "This Mac has \(ramGB) GB: it will be slow and crowd other apps. Qwen or the cloud fits better.")
+                : L("Твоему маку хватит.", "This Mac can handle it."))
+        case "qwen":
+            let base = L("Лёгкая и быстрая, работает без интернета. Весит 1,9 ГБ, хватает 8 ГБ памяти. Русский неродной, но аккуратный.",
+                         "Light and fast, works offline. 1.9 GB, 8 GB of memory is enough. Russian is not native but tidy.")
+            if intel { return base + " " + L("На маке с Intel не работает.", "Does not run on Intel Macs.") }
+            return base + " " + (ramGB < 8
+                ? L("На твоём маке \(ramGB) ГБ: может подтормаживать.", "This Mac has \(ramGB) GB: it may be slow.")
+                : L("Твоему маку подходит.", "Fits this Mac."))
+        case BrainServer.id:
+            return L("Быстро и умно на любом маке, включая Intel. Нужен ключ сервиса и деньги на его балансе API (это не подписка вроде ChatGPT Plus). На сервер уходит только текст, звук остаётся на маке.",
+                     "Fast and smart on any Mac, Intel included. Needs a service key and money on its API balance (not a subscription like ChatGPT Plus). Only text goes to the server; audio stays on the Mac.")
+        default:
+            return L("Мозг выключен: текст вставляется как распознан.", "The Brain is off: text goes in as recognized.")
+        }
+    }
+
+    static func service(_ p: BrainProvider) -> String {
+        switch p.id {
+        case "deepseek": return L("Быстрая недорогая модель с хорошим русским. Пополнить баланс можно на пару долларов.",
+                                  "A fast, inexpensive model with good Russian. A couple of dollars of balance goes a long way.")
+        case "openrouter": return L("Один ключ ко множеству моделей разных компаний. Нужен баланс на счету.",
+                                    "One key to many models from different companies. Needs a balance.")
+        case "openai": return L("Модели ChatGPT. Оплата API отдельно от подписки ChatGPT Plus. Из России не работает без VPN.",
+                                "ChatGPT models. API billing is separate from ChatGPT Plus.")
+        case "groq": return L("Очень быстрые открытые модели, есть бесплатный лимит. Русский слабее, чем у остальных.",
+                              "Very fast open models with a free tier. Russian is weaker than the others.")
+        case "gemini": return L("Модели Google, есть бесплатный лимит. Из России не работает без VPN.",
+                                "Google models with a free tier.")
+        case "anthropic": return L("Модели Claude, платно. Из России не работает без VPN.", "Claude models, paid.")
+        default: return L("Своя нейросеть в LM Studio, Ollama или llama.cpp, у себя или в своей сети. Бесплатно.",
+                          "Your own model in LM Studio, Ollama or llama.cpp, at home or on your network. Free.")
         }
     }
 }
