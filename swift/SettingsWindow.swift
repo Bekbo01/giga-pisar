@@ -14,6 +14,8 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     private var tabs: NSTabViewController?
     private var targets: [ActionTarget] = []   // controls keep their targets weakly
     private var cloud: CloudBrainPanel?
+    /// Brain page controls that only work once the Brain is ready; a kept page must re-enable them.
+    private var needsReadyBrain: [NSButton] = []
     private var downloadLabel: NSTextField?
     private let width: CGFloat = 540
 
@@ -89,6 +91,9 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         if oldBrain == nil {
             targets.removeAll()
             downloadLabel = nil
+        } else {
+            // The key was just saved: the Brain may have become ready while this page stayed.
+            needsReadyBrain.forEach { $0.isEnabled = Brain.shared.ready }
         }
         let pages: [(String, String, NSView)] = [
             (L("Основные", "General"), "gearshape", generalPage()),
@@ -191,6 +196,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
                              on: b.chipsEnabled, enabled: b.ready) { app.setChipsMenu(true) }
         let voiceMode = radio(L("Только голосом: «…Писарь, исправь»", "Voice only: “…Pisar, fix this”"),
                               on: !b.chipsEnabled, enabled: b.ready) { app.setChipsMenu(false) }
+        needsReadyBrain = [every, menuMode, voiceMode]
         let help = button(L("Как пользоваться…", "How to use it…")) { app.showBrainHelp() }
         parts.append(form([("", every), ("", everyNote), (L("Команды:", "Commands:"), menuMode), ("", voiceMode), ("", help)]))
 
@@ -225,6 +231,8 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             self?.select(.brain)
         }
         let whoLabel = wrap(who)
+        // Leave room for the button, or the row overflows and the button sticks out of the window.
+        whoLabel.preferredMaxLayoutWidth = width - 48 - 12 - goBrain.fittingSize.width
         let box = NSStackView(views: [whoLabel, goBrain])
         box.orientation = .horizontal
         box.alignment = .centerY
