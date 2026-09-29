@@ -1,19 +1,19 @@
 {
-  "version": "3.8",
+  "version": "3.8.1",
   "downloads": [
-    "https://gitflic.ru/project/moznoazachem/giga/release/cdf18776-9911-4489-8a8c-e1d23f39f2e7/58fb4e8d-4eaa-47ab-a065-8e0eeb09b01e/download",
-    "https://github.com/moznoazachem/giga-pisar/releases/download/v3.8/GigaPisar-3.8.zip"
+    "https://gitflic.ru/project/moznoazachem/giga/release/ebf990fc-c48b-4491-b5bb-6ff4993bb75d/b5dbc9c4-fc69-40f2-b748-9b3f0c405486/download",
+    "https://github.com/moznoazachem/giga-pisar/releases/download/v3.8.1/GigaPisar-3.8.1.zip"
   ],
   "notes": {
     "ru": [
-      "Короткое меню: «Мозг», «Править на лету», «Править выделенный текст» и «Настройки…» (⌘,)",
-      "Окно настроек с вкладками: Основные, Мозг, Правка выделенного, О программе",
-      "Вкладка «Мозг» подсказывает, какой вариант потянет твой мак; облако настраивается прямо там"
+      "В полях настроек работают ⌘V, ⌘C и ⌘A: ключ API вставляется с клавиатуры",
+      "Кнопка «Мозг…» на вкладке «Правка выделенного» больше не вылезает за край окна",
+      "После ввода ключа «Править на лету» и выбор команд сразу становятся доступны"
     ],
     "en": [
-      "A short menu: Brain, Edit on the Fly, Edit Selected Text and Settings… (⌘,)",
-      "A Settings window with tabs: General, Brain, Edit Selection, About",
-      "The Brain tab tells which option this Mac can handle; the cloud is set up right there"
+      "⌘V, ⌘C and ⌘A work in the settings fields: paste the API key from the keyboard",
+      "The Brain… button on the Edit Selection tab no longer sticks out of the window",
+      "Once the key is entered, Edit on the Fly and the command choice are available right away"
     ]
   }
 }
