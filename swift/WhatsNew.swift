@@ -8,13 +8,13 @@ import AppKit
 
 /// Что изменилось в ЭТОЙ версии. Обновлять при каждом выпуске вместе с номером.
 let WHATS_NEW: [String] = uiIsRussian ? [
-    "Меню стало коротким: Мозг, «Править на лету», «Править выделенный текст» и «Настройки…» (⌘,). Всё остальное в окне настроек с вкладками",
-    "На вкладке «Мозг» описано, что за варианты и потянет ли их твой мак; облако настраивается прямо там",
-    "Если облако не отвечает, Писарь пишет причину: нет денег на счету API, сервис недоступен из страны, ключ не принят",
+    "В полях настроек работают ⌘V, ⌘C и ⌘A: ключ API вставляется с клавиатуры",
+    "Кнопка «Мозг…» на вкладке «Правка выделенного» больше не вылезает за край окна",
+    "После ввода ключа «Править на лету» и выбор команд сразу становятся доступны",
 ] : [
-    "A short menu: Brain, Edit on the Fly, Edit Selected Text and Settings… (⌘,). Everything else is in the Settings window with tabs",
-    "On the Brain tab: what each option is and whether this Mac can handle it; the cloud is set up right there",
-    "When the cloud fails, Pisar says why: no API balance, service unavailable in your country, key rejected",
+    "⌘V, ⌘C and ⌘A work in the settings fields: paste the API key from the keyboard",
+    "The Brain… button on the Edit Selection tab no longer sticks out of the window",
+    "Once the key is entered, Edit on the Fly and the command choice are available right away",
 ]
 
 /// Разбор поля notes из манифеста: словарь по языкам, список или строка.
