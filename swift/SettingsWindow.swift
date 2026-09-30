@@ -17,6 +17,10 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     private weak var app: App?
     private var window: NSWindow?
     private var model: SettingsModel?
+    private var split: NSSplitViewController?
+    /// Название раздела в панели инструментов: меняется вместе с выбором.
+    private var titleItem: NSToolbarItem?
+    private var titleField: NSTextField?
 
     init(app: App) {
         self.app = app
@@ -56,21 +60,46 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         model.onSectionChange = { [weak self] section in
             UserDefaults.standard.set(section.rawValue, forKey: "settingsTab")
             self?.window?.title = section.windowTitle
+            self?.titleField?.stringValue = section.title
         }
         self.model = model
 
-        let host = NSHostingView(rootView: SettingsView(model: model))
-        host.frame = NSRect(x: 0, y: 0, width: 732, height: 560)
-        let w = NSWindow(contentRect: host.frame,
-                         styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
-                         backing: .buffered, defer: false)
-        w.contentView = host
+        // Две колонки — родной NSSplitViewController: от него боковик
+        // получает системный материал и правильные отступы под строкой
+        // заголовка, а панель инструментов — черту, которая появляется,
+        // когда содержимое уезжает под неё. Своими руками это только
+        // изображалось.
+        let sidebar = NSHostingController(rootView: SettingsSidebar(model: model))
+        let detail = NSHostingController(rootView: SettingsDetail(model: model))
+        let split = NSSplitViewController()
+        let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebar)
+        sidebarItem.minimumThickness = 232
+        sidebarItem.maximumThickness = 232
+        sidebarItem.canCollapse = false
+        // Кнопки сворачивания у нас нет — в системных настройках её тоже нет.
+        sidebarItem.allowsFullHeightLayout = true
+        split.addSplitViewItem(sidebarItem)
+        let detailItem = NSSplitViewItem(viewController: detail)
+        detailItem.minimumThickness = 460
+        split.addSplitViewItem(detailItem)
+        self.split = split
+
+        let w = NSWindow(contentViewController: split)
+        w.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
+        w.setContentSize(NSSize(width: 732, height: 560))
         w.minSize = NSSize(width: 692, height: 420)
-        w.titlebarAppearsTransparent = true
-        w.titleVisibility = .hidden   // заголовок рисует сама правая колонка
         w.title = model.section.windowTitle
+        w.titleVisibility = .hidden   // название раздела стоит в панели
         w.isReleasedWhenClosed = false
         w.delegate = self
+
+        let toolbar = NSToolbar(identifier: "settings")
+        toolbar.delegate = self
+        toolbar.displayMode = .iconOnly
+        toolbar.allowsUserCustomization = false
+        w.toolbar = toolbar
+        w.toolbarStyle = .unified
+
         w.center()
         window = w
     }
@@ -91,12 +120,50 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         model?.section = section
         UserDefaults.standard.set(section.rawValue, forKey: "settingsTab")
         window?.title = section.windowTitle
+        titleField?.stringValue = section.title
     }
 
     func windowWillClose(_ notification: Notification) {
         if let s = model?.section { UserDefaults.standard.set(s.rawValue, forKey: "settingsTab") }
         // Окно закрыли — снова живём только в строке меню.
         NSApp.setActivationPolicy(.accessory)
+    }
+}
+
+extension SettingsWindow: NSToolbarDelegate {
+    private static let titleItemId = NSToolbarItem.Identifier("sectionTitle")
+
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        // Разделитель повторяет границу колонок: слева от него — боковик,
+        // справа — название раздела, ровно как в системных настройках.
+        [.sidebarTrackingSeparator, Self.titleItemId]
+    }
+
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        toolbarDefaultItemIdentifiers(toolbar)
+    }
+
+    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier,
+                 willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+        if id == .sidebarTrackingSeparator, let split {
+            return NSTrackingSeparatorToolbarItem(identifier: id, splitView: split.splitView, dividerIndex: 0)
+        }
+        guard id == Self.titleItemId else { return nil }
+        // Свой ярлык, а не item.title: системный текстовый пункт рисуется
+        // мелким и приглушённым, как подпись под кнопкой, а в настройках
+        // заголовок раздела крупный и обычного цвета.
+        let label = NSTextField(labelWithString: model?.section.title ?? "")
+        label.font = .systemFont(ofSize: 15, weight: .semibold)
+        label.textColor = .labelColor
+        // Без явной высоты пункт растягивает всю панель: у системных
+        // настроек она 54, у нас выходило под 70.
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.heightAnchor.constraint(equalToConstant: 22).isActive = true
+        titleField = label
+        let item = NSToolbarItem(itemIdentifier: id)
+        item.view = label
+        titleItem = item
+        return item
     }
 }
 

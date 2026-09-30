@@ -1,8 +1,8 @@
 // Окно настроек в духе системных: слева список разделов со значками,
-// справа — шапка раздела и карточки со строками. Раньше здесь были
-// вкладки в панели инструментов и таблица «подпись — поле»; разделов
-// стало больше, чем помещается в ряд, а строки настроек ничем не
-// отличались друг от друга и читались сплошняком.
+// справа — карточки со строками. Раньше здесь были вкладки в панели
+// инструментов и таблица «подпись — поле»; разделов стало больше, чем
+// помещается в ряд, а строки настроек ничем не отличались друг от друга
+// и читались сплошняком.
 //
 // Значок строки (RowIcon) взят из проекта words как есть, чтобы не
 // разводить два похожих рисования.
@@ -53,36 +53,6 @@ enum SettingsSection: Int, CaseIterable, Identifiable {
         switch self {
         case .about: return L("О Гига Писаре", "About Giga Pisar")
         default:     return title
-        }
-    }
-
-    /// Разделы, которые начинаются со строки-выключателя, шапки не
-    /// показывают: строка и так говорит, что это за штука.
-    var showsHeader: Bool {
-        switch self {
-        case .wave, .brain: return false
-        default:            return true
-        }
-    }
-
-    /// Строка под названием в шапке раздела: чем он вообще занят.
-    var summary: String {
-        switch self {
-        case .general:
-            return L("То, что настраивают один раз и больше не трогают.",
-                     "The things you set once and never touch again.")
-        case .dictation:
-            return L("Зажми клавишу, говори, отпусти: текст появится там, где курсор.",
-                     "Hold the key, speak, release: the text appears at the cursor.")
-        case .wave:
-            return L("Пока идёт диктовка, на экране видно, что Писарь слышит голос.",
-                     "While you dictate, the screen shows that Pisar hears your voice.")
-        case .brain:
-            return L("Нейросеть правит надиктованное по команде «Писарь, …». Без обращения текст вставляется сразу.",
-                     "An AI model edits the dictation on a “Pisar, …” command. Without the address the text goes in at once.")
-        case .about:
-            return L("Распознавание идёт на этом маке, звук никуда не уходит.",
-                     "Speech is recognized on this Mac; audio never leaves it.")
         }
     }
 }
@@ -138,30 +108,14 @@ final class SettingsModel: ObservableObject {
 
 // MARK: окно целиком
 
-struct SettingsView: View {
+/// Левая колонка. Живёт в NSSplitViewItem(sidebarWith:), поэтому фон и
+/// вибрация у неё системные — рисовать их самим больше не нужно.
+struct SettingsSidebar: View {
     @ObservedObject var model: SettingsModel
-    /// Открыли проверку — курсор сразу в поле, чтобы можно было диктовать.
-    @FocusState private var tryFocused: Bool
 
     var body: some View {
-        HStack(spacing: 0) {
-            sidebar
-            Divider()
-            detail
-        }
-        // Заголовок окна прозрачный и колонки уходят под него: боковик
-        // закрашен доверху, как в системных настройках.
-        .ignoresSafeArea(.container, edges: .top)
-    }
-
-    /// Свой список вместо NavigationSplitView: тот вешает в заголовок окна
-    /// кнопку сворачивания боковика, которой в системных настройках нет,
-    /// а убрать её можно только с macOS 14.
-    private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             appHeader
-            // Строки рисуем сами: список SwiftUI вне split-view красит
-            // выбор серым, а в системных настройках он акцентный.
             VStack(spacing: 2) {
                 ForEach(SettingsSection.allCases.filter { $0 != .about }) { section in
                     sidebarRow(section)
@@ -178,8 +132,10 @@ struct SettingsView: View {
             .padding(.horizontal, 9)
             .padding(.bottom, 10)
         }
-        .frame(width: 232)
-        .background(SidebarBackdrop())
+        // Панель инструментов отодвигает содержимое боковика на всю свою
+        // высоту, и шапка уезжает слишком низко: ведём колонку доверху
+        // сами и отступаем ровно настолько, чтобы разойтись со светофором.
+        .ignoresSafeArea(.container, edges: .top)
     }
 
     /// Не раздел, а переключатель: поле для пробы показывается поверх
@@ -234,11 +190,19 @@ struct SettingsView: View {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 14)
-        .padding(.top, 36)   // под заголовком окна: он прозрачный
+        .padding(.top, 44)
         .padding(.bottom, 12)
     }
+}
 
-    private var detail: some View {
+/// Правая колонка: шапка раздела, его строки и плавающее поле для пробы.
+/// Название раздела теперь рисует панель инструментов окна.
+struct SettingsDetail: View {
+    @ObservedObject var model: SettingsModel
+    /// Открыли проверку — курсор сразу в поле, чтобы можно было диктовать.
+    @FocusState private var tryFocused: Bool
+
+    var body: some View {
         // Новый раздел показываем с начала: иначе, перейдя из длинного
         // раздела в короткий, попадаешь в его середину или в пустоту.
         ScrollViewReader { scroll in
@@ -246,12 +210,7 @@ struct SettingsView: View {
                 VStack(spacing: 18) {
                     // Якорь висит на первом блоке: отдельной пустышкой он
                     // добавлял бы к отступу сверху ещё один просвет стопки.
-                    if model.section.showsHeader {
-                        header.id(Self.top)
-                        page
-                    } else {
-                        page.id(Self.top)
-                    }
+                    page.id(Self.top)
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 8)
@@ -265,21 +224,6 @@ struct SettingsView: View {
                 scroll.scrollTo(Self.top, anchor: .top)
                 DispatchQueue.main.async { scroll.scrollTo(Self.top, anchor: .top) }
             }
-        }
-        // Заголовок раздела стоит над правой колонкой, как в системных
-        // настройках, а не у светофора.
-        .safeAreaInset(edge: .top) {
-            HStack {
-                Text(model.section.title)
-                    .font(.system(size: 13, weight: .semibold))
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 20)
-            .frame(height: 42)
-            // Своя подложка: без неё содержимое при прокрутке наезжает
-            // на заголовок. Материал, как у панели инструментов, —
-            // текст под ним размывается, а не просвечивает буквами.
-            .background(.bar)
         }
         .safeAreaInset(edge: .bottom) {
             if model.tryOpen { tryPanel }
@@ -330,35 +274,14 @@ struct SettingsView: View {
 
     private static let top = "top"
 
-    /// Шапка раздела — как в системных настройках: значок слева, рядом
-    /// название и строка о том, чем раздел занят.
-    private var header: some View {
-        HStack(alignment: .top, spacing: 11) {
-            RowIcon(systemName: model.section.icon, backgroundColor: model.section.color,
-                    sideLength: 30, reservesHeight: true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(model.section.title)
-                    .font(.system(size: 14, weight: .semibold))
-                Text(model.section.summary)
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(16)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .fill(Color.cardFill))
-    }
-
     @ViewBuilder
     private var page: some View {
         switch model.section {
-        case .general: GeneralPage(model: model)
+        case .general:   GeneralPage(model: model)
         case .dictation: DictationPage(model: model)
         case .wave:      WavePage(model: model)
-        case .brain:   BrainPage(model: model)
-        case .about:   AboutPage(model: model)
+        case .brain:     BrainPage(model: model)
+        case .about:     AboutPage(model: model)
         }
     }
 }
@@ -465,18 +388,4 @@ struct RowDivider: View {
     var body: some View {
         Divider().padding(.leading, 49)
     }
-}
-
-
-/// Боковик в системных окнах — не просто серая плашка, а размытие
-/// того, что за окном.
-struct SidebarBackdrop: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let v = NSVisualEffectView()
-        v.material = .sidebar
-        v.blendingMode = .behindWindow
-        v.state = .followsWindowActiveState
-        return v
-    }
-    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
 }
