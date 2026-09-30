@@ -48,6 +48,36 @@ enum SettingsSection: Int, CaseIterable, Identifiable {
         }
     }
 
+    /// Разделы, которые начинаются со строки-выключателя, шапки не
+    /// показывают: строка и так говорит, что это за штука.
+    var showsHeader: Bool {
+        switch self {
+        case .wave, .brain: return false
+        default:            return true
+        }
+    }
+
+    /// Строка под названием в шапке раздела: чем он вообще занят.
+    var summary: String {
+        switch self {
+        case .general:
+            return L("То, что настраивают один раз и больше не трогают.",
+                     "The things you set once and never touch again.")
+        case .dictation:
+            return L("Зажми клавишу, говори, отпусти: текст появится там, где курсор.",
+                     "Hold the key, speak, release: the text appears at the cursor.")
+        case .wave:
+            return L("Пока идёт диктовка, на экране видно, что Писарь слышит голос.",
+                     "While you dictate, the screen shows that Pisar hears your voice.")
+        case .brain:
+            return L("Нейросеть правит надиктованное по команде «Писарь, …». Без обращения текст вставляется сразу.",
+                     "An AI model edits the dictation on a “Pisar, …” command. Without the address the text goes in at once.")
+        case .about:
+            return L("Распознавание идёт на этом маке, звук никуда не уходит.",
+                     "Speech is recognized on this Mac; audio never leaves it.")
+        }
+    }
+
     /// Заголовок окна следует за разделом, как в системных настройках.
     var windowTitle: String {
         switch self {
@@ -203,28 +233,22 @@ struct SettingsDetail: View {
     @FocusState private var tryFocused: Bool
 
     var body: some View {
-        // Новый раздел показываем с начала: иначе, перейдя из длинного
-        // раздела в короткий, попадаешь в его середину или в пустоту.
-        ScrollViewReader { scroll in
-            ScrollView {
-                VStack(spacing: 18) {
-                    // Якорь висит на первом блоке: отдельной пустышкой он
-                    // добавлял бы к отступу сверху ещё один просвет стопки.
-                    page.id(Self.top)
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 8)
-                .padding(.bottom, 20)
-                .frame(maxWidth: .infinity)
+        // Новый раздел показываем с начала. Прокрутку не отматываем, а
+        // пересобираем весь список (`id` по разделу): у свежего он и так
+        // стоит в начале, причём с правильным отступом под панелью, —
+        // а `scrollTo` прижимал содержимое к верхней границе прокрутки,
+        // то есть под саму панель.
+        ScrollView {
+            VStack(spacing: 18) {
+                if model.section.showsHeader { header }
+                page
             }
-            .onChange(of: model.section) { _ in
-                // Дважды: первый раз содержимое ещё не разложено (в
-                // «Диктовке» сцена появляется позже), и прокрутка
-                // останавливается чуть ниже начала.
-                scroll.scrollTo(Self.top, anchor: .top)
-                DispatchQueue.main.async { scroll.scrollTo(Self.top, anchor: .top) }
-            }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .padding(.bottom, 20)
+            .frame(maxWidth: .infinity)
         }
+        .id(model.section)
         .safeAreaInset(edge: .bottom) {
             if model.tryOpen { tryPanel }
         }
@@ -272,7 +296,26 @@ struct SettingsDetail: View {
         .onAppear { tryFocused = true }
     }
 
-    private static let top = "top"
+    /// Шапка раздела — как в системных настройках: значок слева, рядом
+    /// название и строка о том, чем раздел занят.
+    private var header: some View {
+        HStack(alignment: .top, spacing: 11) {
+            RowIcon(systemName: model.section.icon, backgroundColor: model.section.color,
+                    sideLength: 30, reservesHeight: true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(model.section.title)
+                    .font(.system(size: 14, weight: .semibold))
+                Text(model.section.summary)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(Color.cardFill))
+    }
 
     @ViewBuilder
     private var page: some View {
