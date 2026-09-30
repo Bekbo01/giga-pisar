@@ -276,6 +276,10 @@ struct SettingsView: View {
             }
             .padding(.horizontal, 20)
             .frame(height: 42)
+            // Своя подложка: без неё содержимое при прокрутке наезжает
+            // на заголовок. Материал, как у панели инструментов, —
+            // текст под ним размывается, а не просвечивает буквами.
+            .background(.bar)
         }
         .safeAreaInset(edge: .bottom) {
             if model.tryOpen { tryPanel }
