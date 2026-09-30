@@ -49,7 +49,7 @@ enum BrainServer {
     }
 
     /// Единственный ключ, сохранённый прежними версиями, отдаём тому
-    /// сервису, который тогда и был настроен, и убираем старую запись.
+    /// сервису, который тогда и был настроен (копией: старая запись остаётся).
     static func migrateLegacyKey() {
         guard !UserDefaults.standard.bool(forKey: "brainKeyMigrated") else { return }
         let old = read(account: legacyAccount)
@@ -60,7 +60,7 @@ enum BrainServer {
         // Отметку ставим только после удачного переезда: иначе сбой
         // Связки ключей молча оставил бы человека без ключа.
         guard write(old, account: account(currentProviderId)) else { return }
-        _ = write("", account: legacyAccount)
+        // Старую запись оставляем: откатится человек на 3.8.x — ключ на месте.
         UserDefaults.standard.set(true, forKey: "brainKeyMigrated")
         NSLog("Гига мозг: ключ переехал к сервису \(currentProviderId)")
     }

@@ -72,7 +72,10 @@ func currentHotkey() -> Hotkey {
 /// синий «думаю», те же цвета, что у плашки возле курсора.
 func barsImage(_ heights: [CGFloat], color: NSColor? = nil, badge: Bool = false) -> NSImage {
     let img = NSImage(size: NSSize(width: 22, height: 18), flipped: false) { _ in
-        (color ?? NSColor.black).setFill()
+        // С красной точкой значок уже не шаблонный, и macOS его не
+        // перекрашивает: столбики красим сами цветом текста строки меню,
+        // он сам становится чёрным или белым под её тему.
+        (color ?? (badge ? NSColor.labelColor : NSColor.black)).setFill()
         for (i, h) in heights.enumerated() {
             let r = NSRect(x: 1 + CGFloat(i) * 4.2, y: 9 - h / 2, width: 2.8, height: h)
             NSBezierPath(roundedRect: r, xRadius: 1.3, yRadius: 1.3).fill()
@@ -88,13 +91,15 @@ func barsImage(_ heights: [CGFloat], color: NSColor? = nil, badge: Bool = false)
             NSBezierPath(ovalIn: NSRect(x: c.x - dot - gap, y: c.y - dot - gap,
                                         width: (dot + gap) * 2, height: (dot + gap) * 2)).fill()
             NSGraphicsContext.current?.compositingOperation = .sourceOver
-            (color ?? NSColor.black).setFill()
+            // Красная, чтобы бросалась в глаза: окно о новой версии больше
+            // не выскакивает, и кроме точки о ней ничто не напомнит.
+            NSColor.systemRed.setFill()
             NSBezierPath(ovalIn: NSRect(x: c.x - dot, y: c.y - dot,
                                         width: dot * 2, height: dot * 2)).fill()
         }
         return true
     }
-    img.isTemplate = (color == nil)
+    img.isTemplate = (color == nil && !badge)
     return img
 }
 
@@ -1310,7 +1315,7 @@ final class App: NSObject, NSApplicationDelegate {
                 if let (body, cmd) = Brain.parseCommand(text) {
                     guard Brain.shared.ready else {
                         self.setState(.idle)
-                        self.paste(text)
+                        self.paste(text, simplify: true)
                         if Brain.shared.chosenId == nil {
                             Toast.shared.show(L("Похоже на команду Писарю. Включи Мозг: меню Гиги, пункт «Мозг»",
                                                 "Sounded like a Pisar command. Turn on the Brain: Giga menu, Brain"))
@@ -1338,7 +1343,7 @@ final class App: NSObject, NSApplicationDelegate {
                     Brain.shared.transform(text, command: "исправь") { out in
                         DispatchQueue.main.async {
                             self.setState(.idle)
-                            self.paste(out ?? text)
+                            self.paste(out ?? text, simplify: true)
                             if out == nil {
                                 Toast.shared.show(Brain.shared.failureText(
                                     L("Писарь не справился, вставил как есть",
@@ -1349,7 +1354,7 @@ final class App: NSObject, NSApplicationDelegate {
                     return
                 }
                 self.setState(.idle)
-                self.paste(text, offerChips: true)
+                self.paste(text, offerChips: true, simplify: true)
             }
         }
     }
@@ -1496,8 +1501,10 @@ final class App: NSObject, NSApplicationDelegate {
         return out
     }
 
-    func paste(_ text: String, offerChips: Bool = false, spacing: Bool = true) {
-        var text = simplified(text)
+    /// simplify: only plain dictation goes through «Упрощать синтаксис»; Brain answers,
+    /// edits of a selection and «Вернуть как было» are put in exactly as they are.
+    func paste(_ text: String, offerChips: Bool = false, spacing: Bool = true, simplify: Bool = false) {
+        var text = simplify ? simplified(text) : text
         if spacing, let last = text.last, !last.isWhitespace { text += " " }
         lastText = text
 
