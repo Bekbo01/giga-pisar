@@ -28,7 +28,16 @@ import Security
 enum BrainServer {
     static let id = "server"
     private static let keychainService = "Giga Pisar Brain"
-    private static let keychainAccount = "api-key"
+    /// Ключ у каждого сервиса свой: переключился на другой и вернулся —
+    /// прежний ключ на месте. До 3.9 ключ был один на всех, он лежит под
+    /// этой учёткой и переезжает к своему сервису при первом обращении.
+    private static let legacyAccount = "api-key"
+    private static func account(_ providerId: String) -> String { "api-key." + providerId }
+
+    /// Чей ключ нужен прямо сейчас — по сохранённому адресу.
+    static var currentProviderId: String {
+        baseURL.isEmpty ? BrainProviders.deepseek.id : BrainProviders.fromURL(baseURL).id
+    }
 
     static var baseURL: String {
         get { UserDefaults.standard.string(forKey: "brainServerURL") ?? "" }
@@ -39,12 +48,40 @@ enum BrainServer {
         set { UserDefaults.standard.set(newValue.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "brainServerModel") }
     }
 
+    /// Единственный ключ, сохранённый прежними версиями, отдаём тому
+    /// сервису, который тогда и был настроен, и убираем старую запись.
+    static func migrateLegacyKey() {
+        guard !UserDefaults.standard.bool(forKey: "brainKeyMigrated") else { return }
+        let old = read(account: legacyAccount)
+        guard !old.isEmpty else {
+            UserDefaults.standard.set(true, forKey: "brainKeyMigrated")
+            return
+        }
+        // Отметку ставим только после удачного переезда: иначе сбой
+        // Связки ключей молча оставил бы человека без ключа.
+        guard write(old, account: account(currentProviderId)) else { return }
+        _ = write("", account: legacyAccount)
+        UserDefaults.standard.set(true, forKey: "brainKeyMigrated")
+        NSLog("Гига мозг: ключ переехал к сервису \(currentProviderId)")
+    }
+
     /// Stores the key (empty removes it). Returns false when the Keychain refused.
     @discardableResult
-    static func saveKey(_ raw: String) -> Bool {
+    static func saveKey(_ raw: String, for providerId: String? = nil) -> Bool {
+        write(raw, account: account(providerId ?? currentProviderId))
+    }
+
+    static var apiKey: String { apiKey(for: currentProviderId) }
+
+    static func apiKey(for providerId: String) -> String {
+        migrateLegacyKey()
+        return read(account: account(providerId))
+    }
+
+    private static func write(_ raw: String, account: String) -> Bool {
         let base: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
                                    kSecAttrService as String: keychainService,
-                                   kSecAttrAccount as String: keychainAccount]
+                                   kSecAttrAccount as String: account]
         let key = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if key.isEmpty {
             let s = SecItemDelete(base as CFDictionary)
@@ -61,10 +98,10 @@ enum BrainServer {
         return status == errSecSuccess
     }
 
-    static var apiKey: String {
+    private static func read(account: String) -> String {
         let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
                                 kSecAttrService as String: keychainService,
-                                kSecAttrAccount as String: keychainAccount,
+                                kSecAttrAccount as String: account,
                                 kSecReturnData as String: true,
                                 kSecMatchLimit as String: kSecMatchLimitOne]
         var out: AnyObject?
@@ -252,6 +289,7 @@ final class Brain: NSObject, URLSessionDownloadDelegate {
         }
         set { UserDefaults.standard.set(newValue ?? "off", forKey: "brainModel") }
     }
+
     var chosenModel: BrainModel? { BRAIN_MODELS.first { $0.id == chosenId } }
 
     /// Кнопочки-подсказки после вставки. По умолчанию ВЫКЛЮЧЕНЫ (решение
@@ -329,10 +367,30 @@ final class Brain: NSObject, URLSessionDownloadDelegate {
         return size > 900_000_000
     }
 
+    /// Сколько места занимает файл модели на диске.
+    func fileSize(_ m: BrainModel) -> Int64 {
+        (try? FileManager.default.attributesOfItem(atPath: path(m)))?[.size] as? Int64 ?? 0
+    }
+
+    /// Удалить скачанный файл — освободить место. Если модель работала,
+    /// сначала гасим сервер, иначе он держит файл открытым.
+    func deleteFile(_ m: BrainModel) {
+        if chosenId == m.id { stopServer() }
+        try? FileManager.default.removeItem(atPath: Self.modelsDir + "/" + m.file)
+        for old in m.legacyFiles {
+            try? FileManager.default.removeItem(atPath: Self.modelsDir + "/" + old)
+        }
+        onChange?()
+    }
+
     // MARK: скачивание модели (с процентами и докачкой после обрывов)
 
     private(set) var downloadingId: String?
     private(set) var downloadPercent = 0
+    /// Сколько байт уже скачано и сколько всего: в настройках показываем
+    /// это словами — «2,1 из 6,5 ГБ», а не только проценты.
+    private(set) var downloadedBytes: Int64 = 0
+    private(set) var downloadTotalBytes: Int64 = 0
     private var dlSession: URLSession?
     private var dlTask: URLSessionDownloadTask?
     private var dlRetries = 0
@@ -341,6 +399,8 @@ final class Brain: NSObject, URLSessionDownloadDelegate {
         cancelDownload()
         downloadingId = m.id
         downloadPercent = 0
+        downloadedBytes = 0
+        downloadTotalBytes = 0
         dlRetries = 0
         let s = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
         dlSession = s
@@ -361,6 +421,8 @@ final class Brain: NSObject, URLSessionDownloadDelegate {
                     didWriteData: Int64, totalBytesWritten: Int64,
                     totalBytesExpectedToWrite: Int64) {
         guard totalBytesExpectedToWrite > 0 else { return }
+        downloadedBytes = totalBytesWritten
+        downloadTotalBytes = totalBytesExpectedToWrite
         let p = Int(100 * totalBytesWritten / totalBytesExpectedToWrite)
         guard p != downloadPercent else { return }
         downloadPercent = p

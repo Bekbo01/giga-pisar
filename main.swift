@@ -70,12 +70,27 @@ func currentHotkey() -> Hotkey {
 /// Столбики в строке меню. Цвет не задан — шаблонная иконка покоя,
 /// чёрно-белая под тему строки меню. Задан — состояние: красный «пишу»,
 /// синий «думаю», те же цвета, что у плашки возле курсора.
-func barsImage(_ heights: [CGFloat], color: NSColor? = nil) -> NSImage {
+func barsImage(_ heights: [CGFloat], color: NSColor? = nil, badge: Bool = false) -> NSImage {
     let img = NSImage(size: NSSize(width: 22, height: 18), flipped: false) { _ in
         (color ?? NSColor.black).setFill()
         for (i, h) in heights.enumerated() {
             let r = NSRect(x: 1 + CGFloat(i) * 4.2, y: 9 - h / 2, width: 2.8, height: h)
             NSBezierPath(roundedRect: r, xRadius: 1.3, yRadius: 1.3).fill()
+        }
+        // Точка «вышло обновление» в правом нижнем углу. Сначала вырезаем
+        // под ней просвет — вместе со столбиками, что под неё попали, —
+        // и только потом рисуем саму точку: так она читается на любой
+        // строке меню, не сливаясь со столбиками.
+        if badge {
+            let c = NSPoint(x: 18.6, y: 3.2)
+            let dot: CGFloat = 2.7, gap: CGFloat = 1.4
+            NSGraphicsContext.current?.compositingOperation = .clear
+            NSBezierPath(ovalIn: NSRect(x: c.x - dot - gap, y: c.y - dot - gap,
+                                        width: (dot + gap) * 2, height: (dot + gap) * 2)).fill()
+            NSGraphicsContext.current?.compositingOperation = .sourceOver
+            (color ?? NSColor.black).setFill()
+            NSBezierPath(ovalIn: NSRect(x: c.x - dot, y: c.y - dot,
+                                        width: dot * 2, height: dot * 2)).fill()
         }
         return true
     }
@@ -180,6 +195,7 @@ final class App: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ n: Notification) {
+        installEditMenu()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         setState(.idle)
         offerMoveToApplications()
@@ -252,14 +268,14 @@ final class App: NSObject, NSApplicationDelegate {
         animTimer = nil
         switch s {
         case .idle:
-            statusItem.button?.image = barsImage([5, 9, 13, 9, 5])
+            statusItem.button?.image = barsImage([5, 9, 13, 9, 5], badge: updateAvailable != nil)
             wave.hide()
         case .rec:
             // Столбики показывают настоящую громкость с микрофона: молчишь —
             // лежат, говоришь — пляшут. Волну у курсора и иконку в строке меню
             // кормит один таймер одними и теми же числами, поэтому они всегда
             // об одном и том же звуке.
-            statusItem.button?.image = barsImage([3, 3, 3, 3, 3], color: recColor)
+            statusItem.button?.image = barsImage([3, 3, 3, 3, 3], color: recColor, badge: updateAvailable != nil)
             var tick = 0
             // 60 кадров в секунду: микрофон приносит громкость раз в ~85 мс,
             // промежуточные кадры доводят столбики до неё плавно. На 20
@@ -273,7 +289,8 @@ final class App: NSObject, NSApplicationDelegate {
                 // столбики 0…1 → высоты иконки: 3 пункта в тишине, 14 на голосе
                 if tick % 3 == 0 {
                     self.statusItem.button?.image = barsImage(self.wave.bars.map { 3 + 11 * $0 },
-                                                              color: recColor)
+                                                              color: recColor,
+                                                              badge: self.updateAvailable != nil)
                 }
                 // окно с кареткой могли передвинуть прямо во время диктовки —
                 // раз в полсекунды спрашиваем место заново и едем за ним
@@ -289,7 +306,8 @@ final class App: NSObject, NSApplicationDelegate {
             // точки, и строка меню с плашкой рассказывали разными словами
             // об одном состоянии.
             statusItem.button?.image = barsImage(
-                [CGFloat](repeating: 3 + 11 * BUSY_BAR, count: 5), color: busyColor)
+                [CGFloat](repeating: 3 + 11 * BUSY_BAR, count: 5), color: busyColor,
+                badge: updateAvailable != nil)
         }
     }
 
@@ -660,6 +678,7 @@ final class App: NSObject, NSApplicationDelegate {
                     if self.updateAvailable != nil {
                         self.updateAvailable = nil
                         self.buildMenu() // убрать устаревшее «доступна версия…»
+                        self.setState(self.state)   // и точку со значка
                     }
                     if !silent {
                         let a = NSAlert()
@@ -673,9 +692,11 @@ final class App: NSObject, NSApplicationDelegate {
                 }
                 self.updateAvailable = latest
                 self.buildMenu()
+                // Точка на значке вместо окна: проверка идёт сама по себе,
+                // и выскакивать поверх чужой работы ей незачем.
+                self.setState(self.state)
                 if autoInstall { self.startSelfUpdate(); return } // человек уже сказал «обновиться»
-                let seen = UserDefaults.standard.string(forKey: "lastUpdateNotified")
-                if !silent || seen != latest {
+                if !silent {
                     UserDefaults.standard.set(latest, forKey: "lastUpdateNotified")
                     let a = NSAlert()
                     a.messageText = L("Вышла версия \(latest)", "Version \(latest) is out")
@@ -934,6 +955,55 @@ final class App: NSObject, NSApplicationDelegate {
     }
 
     /// Off, a local model (downloading it first, with a memory warning) or the cloud.
+    /// Выбрать, где думать, ничего не скачивая: в настройках выбор и
+    /// загрузка теперь разведены — сначала выбираешь, потом отдельной
+    /// кнопкой качаешь.
+    func chooseBrain(_ id: String) {
+        if id == "off" { selectBrain("off"); return }
+        if id == BrainServer.id {
+            Brain.shared.chosenId = id
+            Brain.shared.stopServer()
+            settingsChanged()
+            return
+        }
+        guard BRAIN_MODELS.contains(where: { $0.id == id }) else { return }
+        Brain.shared.chosenId = id
+        settingsChanged()
+    }
+
+    /// Качать по кнопке. Если памяти впритык — честно предупреждаем.
+    func downloadBrain(_ id: String) {
+        guard let m = BRAIN_MODELS.first(where: { $0.id == id }) else { return }
+        guard !Brain.shared.downloaded(m) else { return }
+        let ramGB = ProcessInfo.processInfo.physicalMemory / (1 << 30)
+        if ramGB < m.minRAMGB {
+            let a = NSAlert()
+            a.messageText = L("Может быть тесно", "Might be a tight fit")
+            a.informativeText = L("У этого мака \(ramGB) ГБ памяти, а \(m.name) просит от \(m.minRAMGB) ГБ. Заработает, но медленно и прожорливо. Всё равно скачать?",
+                                  "This Mac has \(ramGB) GB of RAM and \(m.name) wants \(m.minRAMGB)+. It will run, but slowly. Download anyway?")
+            a.addButton(withTitle: L("Скачать", "Download"))
+            a.addButton(withTitle: L("Отмена", "Cancel"))
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+        }
+        Brain.shared.startDownload(m)
+    }
+
+    /// Удалить скачанную модель: место на диске освобождается сразу,
+    /// выбор остаётся — появится кнопка «Скачать».
+    func deleteBrainModel(_ id: String) {
+        guard let m = BRAIN_MODELS.first(where: { $0.id == id }) else { return }
+        let size = Memory.gb(UInt64(max(0, Brain.shared.fileSize(m))))
+        let a = NSAlert()
+        a.messageText = L("Удалить \(m.name)?", "Delete \(m.name)?")
+        a.informativeText = L("Освободится \(size) ГБ. Скачать заново можно в любой момент.",
+                              "This frees \(size) GB. You can download it again at any time.")
+        a.addButton(withTitle: L("Удалить", "Delete"))
+        a.addButton(withTitle: L("Отмена", "Cancel"))
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        Brain.shared.deleteFile(m)
+        settingsChanged()
+    }
+
     func selectBrain(_ id: String) {
         if id == "off" {
             Brain.shared.chosenId = nil
@@ -970,6 +1040,42 @@ final class App: NSObject, NSApplicationDelegate {
         }
         Brain.shared.chosenId = id
         settingsChanged()
+    }
+
+    /// Строка меню для наших окон. Писарь живёт в статус-баре и обычно
+    /// это «аксессуар» без иконки в доке — а у аксессуара нет строки меню,
+    /// и поля ввода остаются без ⌘V, ⌘C и ⌘Z: печатать можно, вставить
+    /// нельзя. Меню собираем сразу, а показываем его вместе с окном
+    /// настроек, переключая политику (см. SettingsWindow).
+    func installEditMenu() {
+        let app = NSMenu()
+        let appItem = NSMenuItem()
+        let appMenu = NSMenu()
+        appMenu.addItem(NSMenuItem(title: L("Скрыть Гига Писарь", "Hide Giga Pisar"),
+                                   action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"))
+        appMenu.addItem(.separator())
+        appMenu.addItem(NSMenuItem(title: L("Выйти", "Quit"),
+                                   action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        appItem.submenu = appMenu
+
+        let edit = NSMenu(title: L("Правка", "Edit"))
+        let items: [(String, String, Selector)] = [
+            (L("Отменить", "Undo"), "z", Selector(("undo:"))),
+            (L("Повторить", "Redo"), "Z", Selector(("redo:"))),
+            (L("Вырезать", "Cut"), "x", #selector(NSText.cut(_:))),
+            (L("Скопировать", "Copy"), "c", #selector(NSText.copy(_:))),
+            (L("Вставить", "Paste"), "v", #selector(NSText.paste(_:))),
+            (L("Выделить всё", "Select All"), "a", #selector(NSText.selectAll(_:))),
+        ]
+        for (title, key, action) in items {
+            edit.addItem(NSMenuItem(title: title, action: action, keyEquivalent: key))
+        }
+        let editItem = NSMenuItem()
+        editItem.submenu = edit
+
+        app.addItem(appItem)
+        app.addItem(editItem)
+        NSApp.mainMenu = app
     }
 
     func startKeyMonitors() {
@@ -1353,8 +1459,45 @@ final class App: NSObject, NSApplicationDelegate {
     /// spacing — дописать пробел в конец. Так следующая фраза не слипается
     /// с предыдущей, если диктовать подряд. Выключаем там, где текст встаёт
     /// не в конец, а на место выделенного куска.
+    /// Упрощённый синтаксис: одно предложение вставляется как реплика в
+    /// переписке — со строчной буквы и без точки в конце. По умолчанию
+    /// выключено: в письмах и документах точка нужна.
+    var simpleSyntax: Bool {
+        get { UserDefaults.standard.bool(forKey: "simpleSyntax") }
+        set { UserDefaults.standard.set(newValue, forKey: "simpleSyntax") }
+    }
+
+    @objc func toggleSimpleSyntax() {
+        simpleSyntax.toggle()
+        settingsChanged()
+    }
+
+    /// Одно ли это предложение. Знак конца внутри текста (а не в самом
+    /// конце) значит, что предложений несколько: тогда не трогаем ничего.
+    /// Сокращения вроде «т.д.» тоже попадают под это правило — и хорошо,
+    /// угадывать за человека не берёмся.
+    func simplified(_ text: String) -> String {
+        guard simpleSyntax else { return text }
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty, !t.contains("\n") else { return text }
+        let ends: Set<Character> = [".", "!", "?", "…", ";"]
+        guard !t.dropLast().contains(where: { ends.contains($0) }) else { return text }
+
+        var out = t
+        // Вопрос и восклицание несут смысл — убираем только точку.
+        if out.hasSuffix(".") { out.removeLast() }
+        // Аббревиатуру и имя не трогаем: строчной делаем только там, где
+        // заглавная стоит просто как начало предложения.
+        let firstWord = out.split(separator: " ").first.map(String.init) ?? out
+        let allCaps = firstWord.count > 1 && firstWord == firstWord.uppercased()
+        if !allCaps, let first = out.first, String(first) != String(first).lowercased() {
+            out = String(first).lowercased() + out.dropFirst()
+        }
+        return out
+    }
+
     func paste(_ text: String, offerChips: Bool = false, spacing: Bool = true) {
-        var text = text
+        var text = simplified(text)
         if spacing, let last = text.last, !last.isWhitespace { text += " " }
         lastText = text
 

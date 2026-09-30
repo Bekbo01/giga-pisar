@@ -41,7 +41,7 @@ rm -rf build
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 
 SOURCES=(main.swift swift/Ort.swift swift/Features.swift swift/Tokenizer.swift
-         swift/Recognizer.swift swift/Audio.swift swift/Mic.swift swift/Sound.swift swift/WavePanel.swift swift/Chips.swift swift/Brain.swift swift/SettingsWindow.swift swift/Updates.swift
+         swift/Recognizer.swift swift/Audio.swift swift/Mic.swift swift/Sound.swift swift/WavePanel.swift swift/Chips.swift swift/Brain.swift swift/SettingsWindow.swift swift/RowIcon.swift swift/SettingsView.swift swift/SettingsPages.swift swift/CloudBrain.swift swift/KeyboardScene.swift swift/Updates.swift
          swift/Onboarding.swift swift/SelfUpdate.swift swift/WhatsNew.swift swift/UpdateWindow.swift swift/Memory.swift)
 
 # универсальный бинарник: Apple Silicon + Intel в одном файле
@@ -58,6 +58,8 @@ rm build/Giga-arm64 build/Giga-x86_64
 
 cp Info.plist "$APP/Contents/Info.plist"
 cp icon/Giga.icns "$APP/Contents/Resources/Giga.icns"
+# Модель клавиатуры для экрана «Диктовка»: SceneKit читает её из ресурсов.
+cp assets/keyboard.usdz "$APP/Contents/Resources/keyboard.usdz"
 # Свои значки меню — символы, экспортированные из SF Symbols. Их нельзя
 # просто положить файлом: символом их делает каталог ассетов, собранный
 # в Assets.car, и только тогда система рисует их как системные — шаблонными,
