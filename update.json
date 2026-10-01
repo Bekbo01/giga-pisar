@@ -1,21 +1,17 @@
 {
-  "version": "3.9",
+  "version": "3.9.1",
   "downloads": [
-    "https://gitflic.ru/project/moznoazachem/giga/release/045975e6-7132-47ea-9dcc-8c24b16996a5/2cc14293-1964-445f-9f9a-0433b7437a69/download",
-    "https://github.com/moznoazachem/giga-pisar/releases/download/v3.9/GigaPisar-3.9.zip"
+    "https://gitflic.ru/project/moznoazachem/giga/release/884bf2c7-23ad-4dec-af26-63ab8fa58c7f/41ccf2c8-5f8e-47f9-817f-310c2f8913a5/download",
+    "https://github.com/moznoazachem/giga-pisar/releases/download/v3.9.1/GigaPisar-3.9.1.zip"
   ],
   "notes": {
     "ru": [
-      "Новое окно настроек: разделы слева, карточки с картинками справа, клавишу диктовки видно на объёмной клавиатуре",
-      "Упрощённый синтаксис: одно предложение вставляется со строчной буквы и без точки, как реплика в переписке",
-      "У каждого облачного сервиса свой ключ, скачанные модели Мозга можно удалить и освободить место",
-      "О новой версии напоминает красная точка на значке, окно больше не выскакивает само"
+      "Модель Qwen для Мозга скачивается с GitHub: из России в десятки раз быстрее, чем раньше",
+      "Писарь сам запускается при входе в систему, выключить можно в настройках, раздел «Основные»"
     ],
     "en": [
-      "A new settings window: sections on the left, cards with pictures on the right, the dictation key shown on a 3D keyboard",
-      "Simple syntax: a single sentence goes in lowercase and without a period, like a chat reply",
-      "Every cloud service keeps its own key, and downloaded Brain models can be deleted to free up space",
-      "A red dot on the icon tells about a new version, no window pops up on its own anymore"
+      "The Qwen model for the Brain downloads from GitHub: many times faster from Russia than before",
+      "Pisar starts by itself when you log in; turn it off in Settings, General"
     ]
   }
 }
