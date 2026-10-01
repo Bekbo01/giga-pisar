@@ -204,6 +204,7 @@ final class App: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         setState(.idle)
         offerMoveToApplications()
+        enableLoginByDefault()
         // после самообновления — подтвердить словами, что всё получилось
         let prevRun = UserDefaults.standard.string(forKey: "lastRunVersion")
         UserDefaults.standard.set(APP_VERSION, forKey: "lastRunVersion")
@@ -716,7 +717,26 @@ final class App: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Автозапуск при входе включён по умолчанию (с 3.9.1): диктовка нужна
+    /// сразу после включения мака, а не после того, как вспомнил открыть Писаря.
+    /// Включаем один раз и только из «Программ» (иначе macOS запомнит копию
+    /// из «Загрузок»). Выключил сам — больше не трогаем.
+    func enableLoginByDefault() {
+        guard !UserDefaults.standard.bool(forKey: "loginItemDecided"),
+              Bundle.main.bundlePath.hasPrefix("/Applications/") else { return }
+        UserDefaults.standard.set(true, forKey: "loginItemDecided")
+        let svc = SMAppService.mainApp
+        guard svc.status != .enabled else { return }
+        do {
+            try svc.register()
+            NSLog("Гига Писарь: автозапуск при входе включён по умолчанию")
+        } catch {
+            NSLog("Гига Писарь: автозапуск не включился — \(error)")
+        }
+    }
+
     @objc func toggleLogin() {
+        UserDefaults.standard.set(true, forKey: "loginItemDecided")   // решение человека важнее умолчания
         let svc = SMAppService.mainApp
         do {
             if svc.status == .enabled {

@@ -8,15 +8,11 @@ import AppKit
 
 /// Что изменилось в ЭТОЙ версии. Обновлять при каждом выпуске вместе с номером.
 let WHATS_NEW: [String] = uiIsRussian ? [
-    "Новое окно настроек: разделы слева, карточки с картинками справа, клавишу диктовки видно на объёмной клавиатуре",
-    "Упрощённый синтаксис: одно предложение вставляется со строчной буквы и без точки, как реплика в переписке",
-    "У каждого облачного сервиса свой ключ, скачанные модели Мозга можно удалить и освободить место",
-    "О новой версии напоминает красная точка на значке, окно больше не выскакивает само",
+    "Модель Qwen для Мозга скачивается с GitHub: из России в десятки раз быстрее, чем раньше",
+    "Писарь сам запускается при входе в систему, выключить можно в настройках, раздел «Основные»",
 ] : [
-    "A new settings window: sections on the left, cards with pictures on the right, the dictation key shown on a 3D keyboard",
-    "Simple syntax: a single sentence goes in lowercase and without a period, like a chat reply",
-    "Every cloud service keeps its own key, and downloaded Brain models can be deleted to free up space",
-    "A red dot on the icon tells about a new version, no window pops up on its own anymore",
+    "The Qwen model for the Brain downloads from GitHub: many times faster from Russia than before",
+    "Pisar starts by itself when you log in; turn it off in Settings, General",
 ]
 
 /// Разбор поля notes из манифеста: словарь по языкам, список или строка.
