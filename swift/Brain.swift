@@ -244,6 +244,11 @@ struct BrainModel {
     let details: String     // честное описание: вес, чей русский, какие маки
     let file: String
     let url: String
+    /// Зеркала, которые пробуем раньше url: из России Hugging Face еле ползёт
+    /// (сотни килобайт в секунду), а GitHub отдаёт в десятки раз быстрее.
+    var mirrors: [String] = []
+    /// Точный размер файла: страница ошибки вместо модели не пройдёт.
+    var bytes: Int64 = 0
     /// Прежние имена файла: у кого модель уже скачана под старым именем,
     /// она остаётся и работает, перекачивать не заставляем.
     var legacyFiles: [String] = []
@@ -270,6 +275,9 @@ var BRAIN_MODELS: [BrainModel] { [
                // качество на наших командах не хуже. Q2 уже коверкает слова.
                file: "Qwen3-4B-Instruct-2507-Q3_K_M.gguf",
                url: "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q3_K_M.gguf",
+               // тот же файл байт в байт, что качает Писарь для Windows
+               mirrors: ["https://github.com/moznoazachem/giga-pisar-win/releases/download/brain-models/Qwen3-4B-Instruct-2507-Q3_K_M.gguf"],
+               bytes: 2_075_618_400,
                legacyFiles: ["Qwen3-4B-Instruct-2507-Q4_K_M.gguf"],
                sizeText: L("1,9 ГБ", "1.9 GB"),
                minRAMGB: 8,
@@ -394,6 +402,23 @@ final class Brain: NSObject, URLSessionDownloadDelegate {
     private var dlSession: URLSession?
     private var dlTask: URLSessionDownloadTask?
     private var dlRetries = 0
+    /// Какой адрес из «зеркала, потом основной» качаем сейчас.
+    private var dlSourceIndex = 0
+
+    private func sources(_ m: BrainModel) -> [String] { m.mirrors + [m.url] }
+
+    /// Следующий адрес, если этот не дал файла. false — адреса кончились.
+    private func tryNextSource() -> Bool {
+        guard let id = downloadingId, let m = BRAIN_MODELS.first(where: { $0.id == id }),
+              dlSourceIndex + 1 < sources(m).count, let sess = dlSession else { return false }
+        dlSourceIndex += 1
+        dlRetries = 0
+        let next = sources(m)[dlSourceIndex]
+        NSLog("Гига мозг: качаю с запасного адреса \(next)")
+        dlTask = sess.downloadTask(with: URL(string: next)!)
+        dlTask?.resume()
+        return true
+    }
 
     func startDownload(_ m: BrainModel) {
         cancelDownload()
@@ -402,9 +427,10 @@ final class Brain: NSObject, URLSessionDownloadDelegate {
         downloadedBytes = 0
         downloadTotalBytes = 0
         dlRetries = 0
+        dlSourceIndex = 0
         let s = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
         dlSession = s
-        dlTask = s.downloadTask(with: URL(string: m.url)!)
+        dlTask = s.downloadTask(with: URL(string: sources(m)[0])!)
         dlTask?.resume()
         onChange?()
     }
@@ -433,6 +459,21 @@ final class Brain: NSObject, URLSessionDownloadDelegate {
                     didFinishDownloadingTo location: URL) {
         guard let id = downloadingId, let m = BRAIN_MODELS.first(where: { $0.id == id })
         else { return }
+        // Сервер мог отдать страницу ошибки, а не модель: проверяем ответ и размер.
+        let status = (downloadTask.response as? HTTPURLResponse)?.statusCode ?? 0
+        let size = ((try? FileManager.default.attributesOfItem(atPath: location.path))?[.size] as? Int64) ?? 0
+        if status != 200 || (m.bytes > 0 && size != m.bytes) {
+            NSLog("Гига мозг: адрес отдал не модель (ответ \(status), \(size) байт)")
+            DispatchQueue.main.async {
+                if !self.tryNextSource() {
+                    self.downloadingId = nil
+                    self.onChange?()
+                    Toast.shared.show(L("Скачивание сорвалось — попробуй ещё раз из меню",
+                                        "Download failed — try again from the menu"))
+                }
+            }
+            return
+        }
         try? FileManager.default.removeItem(atPath: path(m))
         do {
             try FileManager.default.moveItem(atPath: location.path, toPath: path(m))
@@ -467,6 +508,8 @@ final class Brain: NSObject, URLSessionDownloadDelegate {
                     self.dlTask = sess.downloadTask(withResumeData: resume)
                     self.dlTask?.resume()
                 }
+            } else if self.tryNextSource() {
+                return
             } else {
                 NSLog("Гига мозг: скачивание сорвалось — \(error)")
                 self.downloadingId = nil
