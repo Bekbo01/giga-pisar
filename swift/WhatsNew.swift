@@ -8,11 +8,13 @@ import AppKit
 
 /// Что изменилось в ЭТОЙ версии. Обновлять при каждом выпуске вместе с номером.
 let WHATS_NEW: [String] = uiIsRussian ? [
-    "Модель Qwen для Мозга скачивается с GitHub: из России в десятки раз быстрее, чем раньше",
-    "Писарь сам запускается при входе в систему, выключить можно в настройках, раздел «Основные»",
+    "Обновления проверяются строже: Писарь ставит только то, что подписано нашим сертификатом Apple",
+    "Скачанные модели сверяются по контрольной сумме, а локальный Мозг закрыт от других программ паролем",
+    "Пароль, скопированный из менеджера паролей, больше не задерживается в буфере после диктовки",
 ] : [
-    "The Qwen model for the Brain downloads from GitHub: many times faster from Russia than before",
-    "Pisar starts by itself when you log in; turn it off in Settings, General",
+    "Stricter update check: Pisar installs only what is signed with our Apple certificate",
+    "Downloaded models are checked by checksum, and the local Brain is closed to other programs with a key",
+    "A password copied from a password manager no longer lingers on the clipboard after dictation",
 ]
 
 /// Разбор поля notes из манифеста: словарь по языкам, список или строка.

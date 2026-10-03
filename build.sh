@@ -19,6 +19,7 @@ if [ ! -d "$ORT_DIR" ]; then
     echo "── качаю onnxruntime $ORT_VER (41 МБ)"
     mkdir -p vendor
     curl -fL --progress-bar -o vendor/ort.tgz "$ORT_URL"
+    echo "49ae8e3a66ccb18d98ad3fe7f5906b6d7887df8a5edd40f49eb2b14e20885809  vendor/ort.tgz" | shasum -a 256 -c - || { rm vendor/ort.tgz; exit 1; }
     tar xzf vendor/ort.tgz -C vendor
     rm vendor/ort.tgz
 fi
@@ -32,6 +33,7 @@ LLAMA_URL="https://github.com/ggml-org/llama.cpp/releases/download/$LLAMA_BUILD/
 if [ ! -d "$LLAMA_DIR" ]; then
     echo "── качаю llama.cpp $LLAMA_BUILD (11 МБ, мозг Писаря)"
     curl -fL --progress-bar -o vendor/llama.tgz "$LLAMA_URL"
+    echo "b696c798c58e3e02332c8ba2e4dc60ed5bd1508b7c49fb59b1216ca47f7be568  vendor/llama.tgz" | shasum -a 256 -c - || { rm vendor/llama.tgz; exit 1; }
     tar xzf vendor/llama.tgz -C vendor
     rm vendor/llama.tgz
 fi
@@ -42,7 +44,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Framewor
 
 SOURCES=(main.swift swift/Ort.swift swift/Features.swift swift/Tokenizer.swift
          swift/Recognizer.swift swift/Audio.swift swift/Mic.swift swift/Sound.swift swift/WavePanel.swift swift/Chips.swift swift/Brain.swift swift/SettingsWindow.swift swift/RowIcon.swift swift/SettingsView.swift swift/SettingsPages.swift swift/CloudBrain.swift swift/KeyboardScene.swift swift/Updates.swift
-         swift/Onboarding.swift swift/SelfUpdate.swift swift/WhatsNew.swift swift/UpdateWindow.swift swift/Memory.swift)
+         swift/Onboarding.swift swift/SelfUpdate.swift swift/WhatsNew.swift swift/UpdateWindow.swift swift/Memory.swift swift/FileHash.swift swift/Clipboard.swift)
 
 # универсальный бинарник: Apple Silicon + Intel в одном файле
 echo "── сборка"

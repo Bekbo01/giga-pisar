@@ -179,7 +179,7 @@ final class App: NSObject, NSApplicationDelegate {
         let pb = NSPasteboard.general
         guard pb.changeCount == clipboardMark else { return }
         pb.clearContents()
-        if !items.isEmpty { pb.writeObjects(items) }
+        if !items.isEmpty, !isConcealed(items) { pb.writeObjects(items) }
     }
 
     /// Вставить не вышло — диктовка остаётся в буфере, прежнее забываем.
@@ -824,6 +824,16 @@ final class App: NSObject, NSApplicationDelegate {
         modelWindow.busy(L("Распаковываю…", "Unpacking…"))
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let dest = NSHomeDirectory() + "/.giga/model"
+            // The same tarball as on GitHub (its own digest says so); anything else is not unpacked.
+            guard sha256Hex(ofFile: file.path) == "e5a75ab56ab6d3f3a70ab17dd1ce858fe8180597963839dc806014447483224c" else {
+                try? FileManager.default.removeItem(at: file)
+                DispatchQueue.main.async {
+                    self?.modelWindow.hide()
+                    Toast.shared.show(L("Модель скачалась повреждённой, попробуй ещё раз",
+                                        "The model arrived damaged, try again"))
+                }
+                return
+            }
             try? FileManager.default.createDirectory(atPath: dest, withIntermediateDirectories: true)
             let tar = Process()
             tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
@@ -910,7 +920,8 @@ final class App: NSObject, NSApplicationDelegate {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/sh")
         p.arguments = ["-c",
-            "while /bin/kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do /bin/sleep 0.3; done; /usr/bin/open \"\(dest)\""]
+            "while /bin/kill -0 \"$1\" 2>/dev/null; do /bin/sleep 0.3; done; /usr/bin/open \"$2\"",
+            "sh", String(ProcessInfo.processInfo.processIdentifier), dest]
         try? p.run()
         NSApp.terminate(nil)
     }
@@ -1219,7 +1230,7 @@ final class App: NSObject, NSApplicationDelegate {
                 self.hintSelection(s.count)
             }
             pb.clearContents()
-            if !snapshot.isEmpty { pb.writeObjects(snapshot) }
+            if !snapshot.isEmpty, !isConcealed(snapshot) { pb.writeObjects(snapshot) }
         }
     }
 
@@ -1236,7 +1247,7 @@ final class App: NSObject, NSApplicationDelegate {
         selectionAtStart = nil
         let cmd = Brain.stripAddress(speech)
         guard !cmd.isEmpty, Brain.shared.ready else { return false }
-        NSLog("Гига выделение: команда «\(cmd)» над \(sel.count) знаками")
+        NSLog("Гига выделение: команда (\(cmd.count) знаков) над \(sel.count) знаками")
         Brain.shared.transform(sel, command: cmd, mode: .selection) { [weak self] out in
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -1328,8 +1339,7 @@ final class App: NSObject, NSApplicationDelegate {
                 // уже не потеряется, его можно вставить самому через ⌘V.
                 let pb = NSPasteboard.general
                 self.stashClipboard()
-                pb.clearContents()
-                pb.setString(text, forType: .string)
+                putDictation(text, on: pb)
                 self.clipboardMark = pb.changeCount
                 // Обращение «Писарь, …» в конце? Сперва текст идёт в мозг.
                 if let (body, cmd) = Brain.parseCommand(text) {
@@ -1534,8 +1544,7 @@ final class App: NSObject, NSApplicationDelegate {
         // чтобы её можно было вставить самому.
         let pb = NSPasteboard.general
         stashClipboard()
-        pb.clearContents()
-        pb.setString(text, forType: .string)
+        putDictation(text, on: pb)
         clipboardMark = pb.changeCount
 
         // Есть ли куда вставлять? Спрашиваем про сам фокус в текстовом поле,
@@ -1614,3 +1623,4 @@ let delegate = App()
 app.delegate = delegate
 app.setActivationPolicy(.accessory) // без иконки в доке
 app.run()
+

@@ -3,11 +3,12 @@
 // ставит не человек (скачанному из браузера Gatekeeper устроил бы допрос),
 // а само приложение, которому уже доверяют: оно стоит и работает.
 //
-// Безопасность — три замка перед подменой:
-//   1) подпись нового бандла цела (codesign --verify --deep --strict);
-//   2) команда подписи (TeamIdentifier) та же, что у работающей копии, —
-//      чужой архив, даже подсунутый на странице выпусков, не пройдёт;
-//   3) bundle id совпадает — это точно Гига Писарь, а не что-то ещё.
+// Security: before the swap, the new bundle must satisfy our designated
+// requirement (Apple-issued Developer ID certificate of team CQD93BKAH3,
+// bundle id ru.panda.giga, every nested file intact), checked with the
+// Security framework, not by parsing codesign output: the team field there
+// is written by the signer and can be forged on an ad-hoc signature.
+// It must also be newer than the running copy, and come from our mirrors.
 // Подмена — после выхода приложения, маленьким шелл-скриптом: ждёт выхода,
 // меняет бандл, запускает новый, прибирает за собой.
 //
@@ -15,6 +16,7 @@
 // report() дёргается на главной очереди при каждой смене надписи.
 
 import AppKit
+import Security
 
 /// Качает файл и рассказывает, сколько уже скачано. Живёт, пока качает.
 final class Downloader: NSObject, URLSessionDownloadDelegate {
@@ -53,7 +55,7 @@ final class Downloader: NSObject, URLSessionDownloadDelegate {
     func urlSession(_ s: URLSession, downloadTask: URLSessionDownloadTask,
                     didFinishDownloadingTo location: URL) {
         // временный файл живёт только внутри этого вызова — сразу забираем
-        let keep = NSTemporaryDirectory() + "giga-update-dl.zip"
+        let keep = NSTemporaryDirectory() + "giga-dl-\(UUID().uuidString).zip"
         try? FileManager.default.removeItem(atPath: keep)
         do {
             try FileManager.default.moveItem(atPath: location.path, toPath: keep)
@@ -96,35 +98,27 @@ enum SelfUpdate {
         version = nil
     }
 
-    /// Команда подписи бандла («CXX972W555») или nil, если подписи нет.
-    static func teamID(of path: String) -> String? {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
-        p.arguments = ["-dvv", path]
-        let pipe = Pipe()
-        p.standardError = pipe
-        p.standardOutput = Pipe()
-        guard (try? p.run()) != nil else { return nil }
-        p.waitUntilExit()
-        let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(),
-                         encoding: .utf8) ?? ""
-        for line in out.split(separator: "\n") where line.hasPrefix("TeamIdentifier=") {
-            let v = String(line.dropFirst("TeamIdentifier=".count))
-            return v == "not set" ? nil : v
-        }
-        return nil
-    }
+    /// Our Developer ID: only Apple can issue a certificate that meets it.
+    static let requirement =
+        "identifier \"ru.panda.giga\" and anchor apple generic" +
+        " and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */" +
+        " and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */" +
+        " and certificate leaf[subject.OU] = CQD93BKAH3"
 
-    /// Подпись бандла цела и ничего внутри не подменено?
-    static func signatureIntact(_ path: String) -> Bool {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
-        p.arguments = ["--verify", "--deep", "--strict", path]
-        p.standardError = Pipe()
-        p.standardOutput = Pipe()
-        guard (try? p.run()) != nil else { return false }
-        p.waitUntilExit()
-        return p.terminationStatus == 0
+    /// Hosts the update may come from.
+    static let trustedHosts: Set<String> = ["github.com", "gitflic.ru"]
+
+    /// The bundle is signed by us and nothing inside has been changed.
+    static func isSignedByUs(_ path: String) -> Bool {
+        var code: SecStaticCode?
+        var req: SecRequirement?
+        guard SecStaticCodeCreateWithPath(URL(fileURLWithPath: path) as CFURL, [], &code) == errSecSuccess,
+              let code,
+              SecRequirementCreateWithString(requirement as CFString, [], &req) == errSecSuccess,
+              let req
+        else { return false }
+        let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode)
+        return SecStaticCodeCheckValidity(code, flags, req) == errSecSuccess
     }
 
     /// Качает zip выпуска (пробуя зеркала по очереди), проверяет
@@ -136,6 +130,7 @@ enum SelfUpdate {
                     ready: @escaping () -> Void,
                     fail: @escaping (String) -> Void) {
         guard !inProgress else { return }
+        let zips = zips.filter { $0.scheme == "https" && trustedHosts.contains($0.host ?? "") }
         guard !zips.isEmpty else {
             fail(L("у выпуска нет файла", "the release has no file")); return
         }
@@ -214,21 +209,13 @@ enum SelfUpdate {
         }
         let newApp = dir + "/" + name
 
-        // три замка
-        guard signatureIntact(newApp) else {
-            bail(L("подпись обновления повреждена", "the update's signature is broken")); return
+        guard isSignedByUs(newApp) else {
+            bail(L("обновление подписано не нами или повреждено", "the update isn't signed by us or is damaged")); return
         }
-        // Наша официальная команда подписи (Developer ID, сертификат 2026
-        // года). Обновление принимается, если подписано ЛИБО той же командой,
-        // что работающая копия, ЛИБО официальной — это пропускает переход
-        // со старой самодельной подписи на нотаризованную.
-        let officialTeam = "CQD93BKAH3"
-        guard let newTeam = teamID(of: newApp),
-              newTeam == teamID(of: dest) || newTeam == officialTeam else {
-            bail(L("обновление подписано не нами", "the update is signed by someone else")); return
-        }
-        guard Bundle(path: newApp)?.bundleIdentifier == Bundle.main.bundleIdentifier else {
-            bail(L("в архиве не Гига Писарь", "the archive isn't Giga Pisar")); return
+        let current = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+        guard let newVersion = Bundle(path: newApp)?.infoDictionary?["CFBundleShortVersionString"] as? String,
+              isNewerVersion(newVersion, than: current) else {
+            bail(L("в архиве не новая версия", "the archive isn't a newer version")); return
         }
 
         // подмена после нашего выхода
@@ -238,26 +225,28 @@ enum SelfUpdate {
         // модель нельзя терять вместе со старым бандлом — спасаем её
         // в ~/.giga/model, где приложение тоже умеет искать. В сам новый
         // бандл не кладём: это сломало бы его подпись.
+        // Paths go in as arguments, never pasted into the script text.
         let sh = """
         #!/bin/sh
-        while /bin/kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do /bin/sleep 0.3; done
-        if [ ! -d "\(newApp)/Contents/Resources/model" ] \\
-           && [ -d "\(dest)/Contents/Resources/model" ] \\
+        NEW="$1"; DEST="$2"; DIR="$3"; PID="$4"
+        while /bin/kill -0 "$PID" 2>/dev/null; do /bin/sleep 0.3; done
+        if [ ! -d "$NEW/Contents/Resources/model" ] \\
+           && [ -d "$DEST/Contents/Resources/model" ] \\
            && [ ! -d "$HOME/.giga/model" ]; then
             /bin/mkdir -p "$HOME/.giga"
-            /usr/bin/ditto "\(dest)/Contents/Resources/model" "$HOME/.giga/model"
+            /usr/bin/ditto "$DEST/Contents/Resources/model" "$HOME/.giga/model"
         fi
-        /bin/rm -rf "\(dest)"
-        /usr/bin/ditto "\(newApp)" "\(dest)"
-        /usr/bin/open "\(dest)"
-        /bin/rm -rf "\(dir)"
+        /bin/rm -rf "$DEST"
+        /usr/bin/ditto "$NEW" "$DEST"
+        /usr/bin/open "$DEST"
+        /bin/rm -rf "$DIR"
         """
         do {
             try sh.write(toFile: script, atomically: true, encoding: .utf8)
             try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script)
             let p = Process()
             p.executableURL = URL(fileURLWithPath: "/bin/sh")
-            p.arguments = [script]
+            p.arguments = [script, newApp, dest, dir, String(ProcessInfo.processInfo.processIdentifier)]
             try p.run() // НЕ ждём: он ждёт нас
         } catch {
             bail(L("не запустился установщик", "the installer didn't start")); return

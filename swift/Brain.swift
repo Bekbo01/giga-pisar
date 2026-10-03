@@ -249,6 +249,8 @@ struct BrainModel {
     var mirrors: [String] = []
     /// Точный размер файла: страница ошибки вместо модели не пройдёт.
     var bytes: Int64 = 0
+    /// SHA-256 of the file: a replaced or damaged model is never loaded.
+    var sha256: String = ""
     /// Прежние имена файла: у кого модель уже скачана под старым именем,
     /// она остаётся и работает, перекачивать не заставляем.
     var legacyFiles: [String] = []
@@ -264,6 +266,8 @@ var BRAIN_MODELS: [BrainModel] { [
                           "native Russian · 6.5 GB · Macs with 16 GB"),
                file: "GigaChat3.1-10B-A1.8B-q4_K_M.gguf",
                url: "https://huggingface.co/ai-sage/GigaChat3.1-10B-A1.8B-GGUF/resolve/main/GigaChat3.1-10B-A1.8B-q4_K_M.gguf",
+               bytes: 6_474_702_976,
+               sha256: "68a8732fb5cee04f83ebffd7924e15c534d4442c5a43d2ba9e2041fe310b8deb",
                sizeText: L("6,5 ГБ", "6.5 GB"),
                minRAMGB: 16,
                icon: "gigachat"),
@@ -278,6 +282,7 @@ var BRAIN_MODELS: [BrainModel] { [
                // тот же файл байт в байт, что качает Писарь для Windows
                mirrors: ["https://github.com/moznoazachem/giga-pisar-win/releases/download/brain-models/Qwen3-4B-Instruct-2507-Q3_K_M.gguf"],
                bytes: 2_075_618_400,
+               sha256: "9c6e0763577125a994a9bea0bbd7a737ac4498b8a6a4e0f788727553af1806c9",
                legacyFiles: ["Qwen3-4B-Instruct-2507-Q4_K_M.gguf"],
                sizeText: L("1,9 ГБ", "1.9 GB"),
                minRAMGB: 8,
@@ -287,6 +292,8 @@ var BRAIN_MODELS: [BrainModel] { [
 final class Brain: NSObject, URLSessionDownloadDelegate {
     static let shared = Brain()
     static let port: UInt16 = 8617
+    /// Random per launch: other programs on this Mac (or a web page) can't use our server.
+    private let serverKey = UUID().uuidString + UUID().uuidString
 
     /// Что выбрано в меню. nil — мозг выключен.
     var chosenId: String? {
@@ -462,7 +469,9 @@ final class Brain: NSObject, URLSessionDownloadDelegate {
         // Сервер мог отдать страницу ошибки, а не модель: проверяем ответ и размер.
         let status = (downloadTask.response as? HTTPURLResponse)?.statusCode ?? 0
         let size = ((try? FileManager.default.attributesOfItem(atPath: location.path))?[.size] as? Int64) ?? 0
-        if status != 200 || (m.bytes > 0 && size != m.bytes) {
+        let hashOK = status == 200 && (m.bytes == 0 || size == m.bytes)
+            && (m.sha256.isEmpty || sha256Hex(ofFile: location.path) == m.sha256)
+        if !hashOK {
             NSLog("Гига мозг: адрес отдал не модель (ответ \(status), \(size) байт)")
             DispatchQueue.main.async {
                 if !self.tryNextSource() {
@@ -575,7 +584,8 @@ final class Brain: NSObject, URLSessionDownloadDelegate {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: serverBinary)
         p.arguments = ["-m", path(m), "--host", "127.0.0.1", "--port", "\(Self.port)",
-                       "-c", "4096", "-ngl", "99", "--no-webui"]
+                       "-c", "4096", "-ngl", "99", "--no-webui",
+                       "--no-slots", "--api-key", serverKey]
         // Что говорит сервер, пишем в лог: когда нейронка не поднимается на
         // чужом маке, без этого не понять, почему.
         let log = Self.logPath
@@ -778,10 +788,10 @@ final class Brain: NSObject, URLSessionDownloadDelegate {
         var req = URLRequest(url: URL(string: "http://127.0.0.1:\(Self.port)/health")!)
         req.timeoutInterval = 2
         URLSession.shared.dataTask(with: req) { data, _, _ in
-            if let data, String(data: data, encoding: .utf8)?.contains("ok") == true {
+            if let s = self.server, !s.isRunning {
+                done(false)                       // our server died (maybe the port is taken): never trust whoever answers
+            } else if self.server != nil, let data, String(data: data, encoding: .utf8)?.contains("ok") == true {
                 done(true)
-            } else if let s = self.server, !s.isRunning {
-                done(false)                       // сервер умер — ждать нечего
             } else if Date() < deadline {
                 DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
                     tick()
@@ -819,6 +829,7 @@ final class Brain: NSObject, URLSessionDownloadDelegate {
                                       // для правки текста это лишнее и долго
                                       "chat_template_kwargs": ["enable_thinking": false]]
         var req = URLRequest(url: URL(string: "http://127.0.0.1:\(Self.port)/v1/chat/completions")!)
+        req.setValue("Bearer \(serverKey)", forHTTPHeaderField: "Authorization")
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try? JSONSerialization.data(withJSONObject: payload)
