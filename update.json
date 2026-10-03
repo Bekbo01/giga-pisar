@@ -1,17 +1,19 @@
 {
-  "version": "3.9.1",
+  "version": "3.9.2",
   "downloads": [
-    "https://gitflic.ru/project/moznoazachem/giga/release/884bf2c7-23ad-4dec-af26-63ab8fa58c7f/41ccf2c8-5f8e-47f9-817f-310c2f8913a5/download",
-    "https://github.com/moznoazachem/giga-pisar/releases/download/v3.9.1/GigaPisar-3.9.1.zip"
+    "https://gitflic.ru/project/moznoazachem/giga/release/a4a4cd9a-5d0f-46c5-8cd1-b15af5025afe/bd4bca14-ee2c-4528-93d8-d2497d80712e/download",
+    "https://github.com/moznoazachem/giga-pisar/releases/download/v3.9.2/GigaPisar-3.9.2.zip"
   ],
   "notes": {
     "ru": [
-      "Модель Qwen для Мозга скачивается с GitHub: из России в десятки раз быстрее, чем раньше",
-      "Писарь сам запускается при входе в систему, выключить можно в настройках, раздел «Основные»"
+      "Обновления проверяются строже: Писарь ставит только то, что подписано нашим сертификатом Apple",
+      "Скачанные модели сверяются по контрольной сумме, а локальный Мозг закрыт от других программ паролем",
+      "Пароль, скопированный из менеджера паролей, больше не задерживается в буфере после диктовки"
     ],
     "en": [
-      "The Qwen model for the Brain downloads from GitHub: many times faster from Russia than before",
-      "Pisar starts by itself when you log in; turn it off in Settings, General"
+      "Stricter update check: Pisar installs only what is signed with our Apple certificate",
+      "Downloaded models are checked by checksum, and the local Brain is closed to other programs with a key",
+      "A password copied from a password manager no longer lingers on the clipboard after dictation"
     ]
   }
 }
