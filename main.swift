@@ -176,6 +176,7 @@ final class App: NSObject, NSApplicationDelegate {
     func restoreClipboard() {
         guard let items = clipboardBefore else { return }
         clipboardBefore = nil
+        if keepOnClipboard { return }   // asked for: the dictation stays, e.g. to paste it into a VM
         let pb = NSPasteboard.general
         guard pb.changeCount == clipboardMark else { return }
         pb.clearContents()
@@ -1339,7 +1340,7 @@ final class App: NSObject, NSApplicationDelegate {
                 // уже не потеряется, его можно вставить самому через ⌘V.
                 let pb = NSPasteboard.general
                 self.stashClipboard()
-                putDictation(text, on: pb)
+                putDictation(text, on: pb, transient: !self.keepOnClipboard)
                 self.clipboardMark = pb.changeCount
                 // Обращение «Писарь, …» в конце? Сперва текст идёт в мозг.
                 if let (body, cmd) = Brain.parseCommand(text) {
@@ -1507,6 +1508,18 @@ final class App: NSObject, NSApplicationDelegate {
         settingsChanged()
     }
 
+    /// Keep each dictation on the clipboard as an ordinary copy instead of giving back what was
+    /// there: for virtual machines and remote desktops, where it is pasted by hand. Off by default.
+    var keepOnClipboard: Bool {
+        get { UserDefaults.standard.bool(forKey: "keepOnClipboard") }
+        set { UserDefaults.standard.set(newValue, forKey: "keepOnClipboard") }
+    }
+
+    @objc func toggleKeepOnClipboard() {
+        keepOnClipboard.toggle()
+        settingsChanged()
+    }
+
     /// Одно ли это предложение. Знак конца внутри текста (а не в самом
     /// конце) значит, что предложений несколько: тогда не трогаем ничего.
     /// Сокращения вроде «т.д.» тоже попадают под это правило — и хорошо,
@@ -1544,7 +1557,7 @@ final class App: NSObject, NSApplicationDelegate {
         // чтобы её можно было вставить самому.
         let pb = NSPasteboard.general
         stashClipboard()
-        putDictation(text, on: pb)
+        putDictation(text, on: pb, transient: !keepOnClipboard)
         clipboardMark = pb.changeCount
 
         // Есть ли куда вставлять? Спрашиваем про сам фокус в текстовом поле,
