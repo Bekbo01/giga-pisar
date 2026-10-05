@@ -92,7 +92,15 @@ final class CTCRecognizer: SpeechRecognizer {
             throw OrtError.failed("не разобрал словарь: \(Self.modelName)_vocab.json")
         }
         vocab = list
+        // Словарь общий для пяти языков, язык модели не задать. На коротких
+        // фразах казахский путается с узбекским, а тот пишется латиницей:
+        // «Mening otim» вместо «Менің атым». Поэтому латиницу запрещаем —
+        // из оставшихся букв самое вероятное написание и есть казахское.
+        allowed = list.map { ch in !(ch.count == 1 && ("a"..."z").contains(ch)) } + [true]
     }
+
+    /// Какие буквы можно выдавать (последний элемент — «пустышка»).
+    private let allowed: [Bool]
 
     func transcribe(samples: [Float], rate: Int) throws -> String {
         let w = try words(samples: samples, rate: rate)
@@ -154,7 +162,9 @@ final class CTCRecognizer: SpeechRecognizer {
             var best = 0
             var bestValue = -Float.greatestFiniteMagnitude
             let row = t * C
-            for c in 0..<C where lp[row + c] > bestValue { bestValue = lp[row + c]; best = c }
+            for c in 0..<C where (c >= allowed.count || allowed[c]) && lp[row + c] > bestValue {
+                bestValue = lp[row + c]; best = c
+            }
             if best != blankId && best != prev && best < vocab.count {
                 let ch = vocab[best]
                 if ch == " " {

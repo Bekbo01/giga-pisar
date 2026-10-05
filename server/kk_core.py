@@ -72,6 +72,11 @@ class KazakhEngine:
             self.vocab = json.load(f)
         self.blank_id = len(self.vocab)
         self.features = Features(cfg)
+        # Словарь общий для пяти языков, язык модели не задать. На коротких
+        # фразах казахский путается с узбекским, а тот пишется латиницей:
+        # «Mening otim» вместо «Менің атым». Поэтому латиницу запрещаем —
+        # из оставшихся букв самое вероятное написание и есть казахское.
+        self.allowed = np.array([not ("a" <= ch <= "z") for ch in self.vocab] + [True])
 
         opts = rt.SessionOptions()
         opts.graph_optimization_level = rt.GraphOptimizationLevel.ORT_ENABLE_ALL
@@ -88,7 +93,8 @@ class KazakhEngine:
         lens = np.array([self.features.out_len(len(wav))], dtype=np.int64)
         log_probs, enc_len = self.sess.run(
             None, {i.name: v for i, v in zip(self.sess.get_inputs(), [feats, lens])})
-        labels = log_probs[0].argmax(axis=-1)          # [T]
+        lp = np.where(self.allowed[np.newaxis, :], log_probs[0], -np.inf)
+        labels = lp.argmax(axis=-1)                    # [T], только разрешённые буквы
         T = labels.shape[0]
         n = min(int(np.asarray(enc_len).reshape(-1)[0]), T)
         if n == 0:
